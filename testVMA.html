@@ -389,8 +389,8 @@ const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbx7nUnN_obrtSJ0Xcxcz
 const LIST_TAB = 'Liste des élèves du collège';
 let CLASSES = ['6eme1','6eme2','6eme3','6eme4','3eme1','3eme2','3eme3','3eme4'];
 let CLASS_LABELS = {
-  '6eme1':'6ème 1','6eme2':'6ème 2','6eme3':'6ème 3','6eme4':'6ème 4',
-  '3eme1':'3ème 1','3eme2':'3ème 2','3eme3':'3ème 3','3eme4':'3ème 4'
+  '6eme1':'6ème1','6eme2':'6ème2','6eme3':'6ème3','6eme4':'6ème4',
+  '3eme1':'3ème1','3eme2':'3ème2','3eme3':'3ème3','3eme4':'3ème4'
 };
 
 const state = {
@@ -847,7 +847,7 @@ function clearClass() {
 // ============================================================
 function formatClassLabel(cls) {
   const m = cls.match(/^(\d+)eme(\d+)$/i);
-  return m ? `${m[1]}ème ${m[2]}` : cls;
+  return m ? `${m[1]}ème${m[2]}` : cls;
 }
 
 function isAllowedClass(cls) {
@@ -1139,11 +1139,15 @@ async function importFromGoogleSheets() {
     renderGroupPools();
     renderConfigSummary();
 
-    const lines = selected.map(cls =>
-      `<br>• ${CLASS_LABELS[cls]||cls} : ✅ ${state.classes[cls]?.length||0} élève(s)`
-    ).join('');
+    const lines = selected.map(cls => {
+      const found = grouped[cls]?.length || 0;
+      return `<br>• ${CLASS_LABELS[cls]||cls} : ${found > 0 ? '✅' : '⚠️'} ${state.classes[cls]?.length||0} élève(s) en mémoire (${found} dans la feuille)`;
+    }).join('');
+    const detectedRaw = available.length > 0
+      ? `<br><span style="font-size:.78rem;color:#555">Classes détectées dans la feuille : ${available.map(c=>CLASS_LABELS[c]||c).join(', ')}</span>`
+      : `<br><span style="font-size:.78rem;color:#c62828">Aucune classe reconnue dans la feuille.</span>`;
     const msg = total > 0 ? `${total} élève(s) importé(s).` : `Liste à jour.`;
-    statusEl.innerHTML = `<div class="alert alert-success">${msg} Groupes A/B pré-assignés.${lines}</div>`;
+    statusEl.innerHTML = `<div class="alert alert-success">${msg} Groupes A/B pré-assignés.${lines}${detectedRaw}</div>`;
   } catch(e) {
     statusEl.innerHTML = `<div class="alert alert-warn">Erreur : ${e.message}</div>`;
   }
