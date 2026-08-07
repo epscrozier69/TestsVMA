@@ -230,27 +230,8 @@ label{display:block;font-size:.82rem;font-weight:600;color:#5c6bc0;margin-bottom
     <div id="gsheetStatus" style="margin-top:10px"></div>
   </div>
 
-  <!-- Onglets de classe + liste élèves -->
-  <div class="card">
-    <div class="class-tabs" id="classTabs" style="margin-bottom:14px"></div>
-    <h2>👥 Élèves — <span id="currentClassLabel"></span>
-      <span id="studentCount" class="badge badge-blue" style="margin-left:8px">0 élève(s)</span>
-      <span id="cntA" class="badge" style="margin-left:6px;background:#e3f2fd;color:#1565c0">A : 0</span>
-      <span id="cntB" class="badge" style="margin-left:4px;background:#ede7f6;color:#4527a0">B : 0</span>
-      <button class="btn btn-danger btn-sm" style="margin-left:auto" onclick="clearClass()">Vider la liste</button>
-    </h2>
-    <div id="studentTable"></div>
-  </div>
-
-  <!-- Divs cachés nécessaires au JS (renderGroupPools) -->
-  <div style="display:none">
-    <div id="poolUnassigned"></div>
-    <div id="poolA"></div>
-    <div id="poolB"></div>
-  </div>
-
   <!-- Récapitulatif + Lancer -->
-  <div class="card" style="margin-top:18px">
+  <div class="card">
     <h2>✅ Récapitulatif &amp; Lancement</h2>
     <div id="configSummary"></div>
     <div style="margin-top:16px">
@@ -266,6 +247,26 @@ label{display:block;font-size:.82rem;font-weight:600;color:#5c6bc0;margin-bottom
       <button class="btn btn-success" onclick="goToTest()">▶️ Lancer le test</button>
     </div>
   </div>
+
+  <!-- Divs cachés nécessaires au JS (renderGroupPools) -->
+  <div style="display:none">
+    <div id="poolUnassigned"></div>
+    <div id="poolA"></div>
+    <div id="poolB"></div>
+  </div>
+
+  <!-- Onglets de classe + liste élèves -->
+  <div class="card">
+    <div class="class-tabs" id="classTabs" style="margin-bottom:14px"></div>
+    <h2>👥 Élèves — <span id="currentClassLabel"></span>
+      <span id="studentCount" class="badge badge-blue" style="margin-left:8px">0 élève(s)</span>
+      <span id="cntA" class="badge" style="margin-left:6px;background:#e3f2fd;color:#1565c0">A : 0</span>
+      <span id="cntB" class="badge" style="margin-left:4px;background:#ede7f6;color:#4527a0">B : 0</span>
+      <button class="btn btn-danger btn-sm" style="margin-left:auto" onclick="clearClass()">Vider la liste</button>
+    </h2>
+    <div id="studentTable"></div>
+  </div>
+
 </div>
 
 <!-- ===================== TAB TEST EN COURS ===================== -->
@@ -831,6 +832,8 @@ function clearClass() {
     state.groupB = state.groupB.filter(x => x !== s.id);
   });
   state.classes[state.currentClass] = [];
+  renderClassTabs();
+  renderResultClassTabs();
   renderStudentTable();
   renderGroupPools();
   saveState();
