@@ -387,8 +387,11 @@ label{display:block;font-size:.82rem;font-weight:600;color:#5c6bc0;margin-bottom
 const SHEET_ID = '1ExFoJwg4aIXzta0FO_CkFU72uAFGH649jjrglUPcKsE';
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbx7nUnN_obrtSJ0XcxczA8ByK7QAtggxoaVeeKuzMXSOzfxmJ2ViITaDuGJVyaME9LV/exec';
 const LIST_TAB = 'Liste des élèves du collège';
-let CLASSES = [];       // dynamique : rempli à l'import
-let CLASS_LABELS = {};  // dynamique : '3eme1' → '3ème 1'
+let CLASSES = ['6eme1','6eme2','6eme3','6eme4','3eme1','3eme2','3eme3','3eme4'];
+let CLASS_LABELS = {
+  '6eme1':'6ème 1','6eme2':'6ème 2','6eme3':'6ème 3','6eme4':'6ème 4',
+  '3eme1':'3ème 1','3eme2':'3ème 2','3eme3':'3ème 3','3eme4':'3ème 4'
+};
 
 const state = {
   classes: {},
@@ -906,8 +909,6 @@ function renderImportCheckboxes(availableInSheet) {
     container.innerHTML = '<span style="font-size:.82rem;color:#888">Synchronisez d\'abord pour détecter les classes.</span>';
     return;
   }
-  const has6 = all.some(c => c.startsWith('6eme'));
-  const has3 = all.some(c => c.startsWith('3eme'));
   container.innerHTML = `<div class="flex-gap" style="flex-wrap:wrap;align-items:center;row-gap:6px">
     <span style="font-size:.82rem;font-weight:600;color:#5c6bc0">Classes à importer :</span>
     ${all.map(cls =>
@@ -915,10 +916,6 @@ function renderImportCheckboxes(availableInSheet) {
         <input type="checkbox" class="cls-import-check" value="${cls}"> ${CLASS_LABELS[cls]||cls}
       </label>`
     ).join('')}
-    ${has6 ? `<button class="btn btn-outline btn-sm" style="font-size:.78rem;padding:2px 8px" onclick="checkAll('6eme')">Tout 6ème</button>` : ''}
-    ${has3 ? `<button class="btn btn-outline btn-sm" style="font-size:.78rem;padding:2px 8px" onclick="checkAll('3eme')">Tout 3ème</button>` : ''}
-    <button class="btn btn-outline btn-sm" style="font-size:.78rem;padding:2px 8px" onclick="checkAll('')">Tout</button>
-    <button class="btn btn-outline btn-sm" style="font-size:.78rem;padding:2px 8px" onclick="checkAll(null)">Aucun</button>
   </div>`;
 }
 
