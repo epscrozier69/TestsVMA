@@ -913,9 +913,7 @@ function renderResultClassTabs() {
 function renderImportCheckboxes(availableInSheet) {
   const container = document.getElementById('importCheckboxes');
   if (!container) return;
-  // Afficher toutes les classes connues (localStorage + sheet), marquées selon présence dans le sheet
-  const all = CLASSES.slice(); // copie de toutes les classes connues
-  // Ajouter celles du sheet pas encore dans CLASSES (normalement déjà fait via ensureClass)
+  const all = CLASSES.slice();
   (availableInSheet||[]).forEach(cls => { if (!all.includes(cls)) all.push(cls); });
   if (all.length === 0) {
     container.innerHTML = '<span style="font-size:.82rem;color:#888">Synchronisez d\'abord pour détecter les classes.</span>';
@@ -923,12 +921,11 @@ function renderImportCheckboxes(availableInSheet) {
   }
   container.innerHTML = `<div class="flex-gap" style="flex-wrap:wrap;align-items:center">
     <span style="font-size:.82rem;font-weight:600;color:#5c6bc0">Classes à importer :</span>
-    ${all.map(cls => {
-      const inSheet = !availableInSheet || availableInSheet.includes(cls);
-      return `<label style="cursor:pointer;font-size:.85rem;display:flex;align-items:center;gap:4px;${inSheet?'':'opacity:.45;text-decoration:line-through'}" title="${inSheet?'':'Absente du Google Sheet'}">
-        <input type="checkbox" class="cls-import-check" value="${cls}" ${inSheet?'checked':''}> ${CLASS_LABELS[cls]||cls}
-      </label>`;
-    }).join('')}
+    ${all.map(cls =>
+      `<label style="cursor:pointer;font-size:.85rem;display:flex;align-items:center;gap:4px">
+        <input type="checkbox" class="cls-import-check" value="${cls}" checked> ${CLASS_LABELS[cls]||cls}
+      </label>`
+    ).join('')}
   </div>`;
 }
 
@@ -1031,8 +1028,12 @@ function splitNomPrenom(full) {
 }
 
 function normalizeClasse(raw) {
-  return String(raw).normalize('NFD').replace(/[̀-ͯ]/g,'')
-    .toLowerCase().replace(/\s/g,'');
+  return String(raw)
+    .normalize('NFD').replace(/[̀-ͯ]/g,'')  // supprime les accents
+    .toLowerCase()
+    .replace(/°/g, 'eme')                    // "3°1" → "3eme1"
+    .replace(/\s+/g, '')                     // supprime les espaces
+    .replace(/^(\d+)e(\d+)$/, '$1eme$2');   // "3e1" / "6e2" → "3eme1" / "6eme2"
 }
 
 // Charge un onglet Google Sheet via JSONP (appels séquentiels = pas de collision de callback)
@@ -1093,22 +1094,30 @@ async function importFromGoogleSheets() {
   statusEl.innerHTML = '<div class="alert alert-info">Chargement en cours…</div>';
 
   try {
+    // Lire la sélection AVANT de régénérer les cases à cocher
+    const checksBefore = document.querySelectorAll('.cls-import-check');
+    const userSelection = checksBefore.length > 0
+      ? Array.from(checksBefore).filter(cb => cb.checked).map(cb => cb.value)
+      : null;
+
     const rows = await fetchSheetGviz(LIST_TAB);
-    const grouped = parseListTab(rows); // { '3eme1': [...], '6eme2': [...], ... }
+    const grouped = parseListTab(rows);
     const available = Object.keys(grouped).sort((a,b) => {
       const na = parseInt(a), nb = parseInt(b);
       return na !== nb ? na - nb : a.localeCompare(b);
     });
 
-    // Enregistrer les classes disponibles et mettre à jour les cases à cocher
     available.forEach(ensureClass);
     renderImportCheckboxes(available);
 
-    // Quelles classes sont cochées ?
-    const checks = document.querySelectorAll('.cls-import-check:checked');
-    const selected = checks.length > 0
-      ? Array.from(checks).map(cb => cb.value)
-      : available;
+    // Restaurer la sélection de l'utilisateur
+    if (userSelection) {
+      document.querySelectorAll('.cls-import-check').forEach(cb => {
+        cb.checked = userSelection.includes(cb.value);
+      });
+    }
+
+    const selected = Array.from(document.querySelectorAll('.cls-import-check:checked')).map(cb => cb.value);
 
     let total = 0;
     for (const cls of selected) {
