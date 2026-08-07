@@ -216,22 +216,13 @@ label{display:block;font-size:.82rem;font-weight:600;color:#5c6bc0;margin-bottom
 
 <!-- ===================== TAB GÉNÉRAL + CONFIGURATION (fusionnés) ===================== -->
 <div id="tab-general" class="tab-content active">
-  <div class="class-tabs" id="classTabs">
-    <button class="class-tab active" onclick="selectClass('3eme1',this)">3ème 1</button>
-    <button class="class-tab" onclick="selectClass('3eme2',this)">3ème 2</button>
-    <button class="class-tab" onclick="selectClass('3eme3',this)">3ème 3</button>
-    <button class="class-tab" onclick="selectClass('3eme4',this)">3ème 4</button>
-  </div>
+  <div class="class-tabs" id="classTabs"></div>
 
   <!-- Import -->
   <div class="card">
     <h2>📥 Importer les élèves</h2>
-    <div class="flex-gap" style="margin-bottom:10px;flex-wrap:wrap">
-      <span style="font-size:.82rem;font-weight:600;color:#5c6bc0">Classes à importer :</span>
-      <label style="cursor:pointer;font-size:.85rem;display:flex;align-items:center;gap:4px"><input type="checkbox" class="cls-import-check" value="0" checked> 3ème 1</label>
-      <label style="cursor:pointer;font-size:.85rem;display:flex;align-items:center;gap:4px"><input type="checkbox" class="cls-import-check" value="1" checked> 3ème 2</label>
-      <label style="cursor:pointer;font-size:.85rem;display:flex;align-items:center;gap:4px"><input type="checkbox" class="cls-import-check" value="2" checked> 3ème 3</label>
-      <label style="cursor:pointer;font-size:.85rem;display:flex;align-items:center;gap:4px"><input type="checkbox" class="cls-import-check" value="3" checked> 3ème 4</label>
+    <div id="importCheckboxes" style="margin-bottom:10px;font-size:.82rem;color:#888">
+      Cliquez sur "Synchroniser" pour détecter les classes disponibles.
     </div>
     <div class="flex-gap">
       <button class="btn btn-primary" id="gsheetImportBtn" onclick="importFromGoogleSheets()">🔄 Synchroniser depuis Google Sheets</button>
@@ -383,10 +374,6 @@ label{display:block;font-size:.82rem;font-weight:600;color:#5c6bc0;margin-bottom
 
   <div class="class-tabs" id="resultClassTabs">
     <button class="class-tab active" onclick="selectResultClass('all',this)">Toutes classes</button>
-    <button class="class-tab" onclick="selectResultClass('3eme1',this)">3ème 1</button>
-    <button class="class-tab" onclick="selectResultClass('3eme2',this)">3ème 2</button>
-    <button class="class-tab" onclick="selectResultClass('3eme3',this)">3ème 3</button>
-    <button class="class-tab" onclick="selectResultClass('3eme4',this)">3ème 4</button>
   </div>
 
   <div class="card">
@@ -439,16 +426,14 @@ label{display:block;font-size:.82rem;font-weight:600;color:#5c6bc0;margin-bottom
 // ============================================================
 const SHEET_ID = '1ExFoJwg4aIXzta0FO_CkFU72uAFGH649jjrglUPcKsE';
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbx7nUnN_obrtSJ0XcxczA8ByK7QAtggxoaVeeKuzMXSOzfxmJ2ViITaDuGJVyaME9LV/exec';
-const SHEET_TABS = ['3ème1','3ème2','3ème3','3ème4'];
-const CLASSES = ['3eme1','3eme2','3eme3','3eme4'];
-const CLASS_LABELS = {
-  '3eme1':'3ème 1','3eme2':'3ème 2','3eme3':'3ème 3','3eme4':'3ème 4'
-};
+const LIST_TAB = 'Liste des élèves du collège';
+let CLASSES = [];       // dynamique : rempli à l'import
+let CLASS_LABELS = {};  // dynamique : '3eme1' → '3ème 1'
 
 const state = {
-  classes: {'3eme1':[],'3eme2':[],'3eme3':[],'3eme4':[]},
-  currentClass: '3eme1',
-  configClass: '3eme1',
+  classes: {},
+  currentClass: null,
+  configClass: null,
   resultClass: 'all',
   trackLength: 100,
   groupA: [],   // ids of runners
@@ -893,6 +878,112 @@ function clearClass() {
 }
 
 // ============================================================
+//  CLASSES DYNAMIQUES
+// ============================================================
+function formatClassLabel(cls) {
+  const m = cls.match(/^(\d+)eme(\d+)$/i);
+  return m ? `${m[1]}ème ${m[2]}` : cls;
+}
+
+function isAllowedClass(cls) {
+  return cls.startsWith('3eme') || cls.startsWith('6eme');
+}
+
+function ensureClass(cls) {
+  if (!CLASSES.includes(cls)) {
+    CLASSES.push(cls);
+    CLASSES.sort((a, b) => {
+      const na = parseInt(a), nb = parseInt(b);
+      if (na !== nb) return na - nb;
+      return a.localeCompare(b);
+    });
+    CLASS_LABELS[cls] = formatClassLabel(cls);
+  }
+  if (!state.classes[cls]) state.classes[cls] = [];
+  if (!state.currentClass) {
+    state.currentClass = cls;
+    state.configClass = cls;
+  }
+}
+
+function renderClassTabs() {
+  const container = document.getElementById('classTabs');
+  if (!container) return;
+  if (CLASSES.length === 0) {
+    container.innerHTML = '<span style="color:#888;font-size:.85rem">Aucune classe chargée — importez d\'abord les élèves</span>';
+    return;
+  }
+  const cur = state.currentClass || CLASSES[0];
+  state.currentClass = cur;
+  state.configClass = cur;
+  container.innerHTML = CLASSES.map(cls =>
+    `<button class="class-tab${cls===cur?' active':''}" onclick="selectClass('${cls}',this)">${CLASS_LABELS[cls]}</button>`
+  ).join('');
+  const lbl = document.getElementById('currentClassLabel');
+  if (lbl) lbl.textContent = CLASS_LABELS[cur] || cur;
+}
+
+function renderResultClassTabs() {
+  const container = document.getElementById('resultClassTabs');
+  if (!container) return;
+  const cur = state.resultClass || 'all';
+  container.innerHTML =
+    `<button class="class-tab${cur==='all'?' active':''}" onclick="selectResultClass('all',this)">Toutes classes</button>` +
+    CLASSES.map(cls =>
+      `<button class="class-tab${cls===cur?' active':''}" onclick="selectResultClass('${cls}',this)">${CLASS_LABELS[cls]}</button>`
+    ).join('');
+}
+
+function renderImportCheckboxes(availableClasses) {
+  const container = document.getElementById('importCheckboxes');
+  if (!container) return;
+  if (!availableClasses || availableClasses.length === 0) {
+    container.innerHTML = '<span style="font-size:.82rem;color:#888">Aucune classe 3ème/6ème trouvée dans l\'onglet.</span>';
+    return;
+  }
+  container.innerHTML = `<div class="flex-gap" style="flex-wrap:wrap">
+    <span style="font-size:.82rem;font-weight:600;color:#5c6bc0">Classes à importer :</span>
+    ${availableClasses.map(cls =>
+      `<label style="cursor:pointer;font-size:.85rem;display:flex;align-items:center;gap:4px">
+        <input type="checkbox" class="cls-import-check" value="${cls}" checked> ${CLASS_LABELS[cls]||cls}
+      </label>`
+    ).join('')}
+  </div>`;
+}
+
+// Parse l'onglet unique et retourne les élèves groupés par classe
+function parseListTab(rows) {
+  if (rows.length < 2) return {};
+  const header = rows[0].map(h => String(h).trim().toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g,''));
+  const iNomPrenom = header.findIndex(h => h.includes('nom') && h.includes('pr'));
+  const iNom    = iNomPrenom !== -1 ? -1 : header.findIndex(h => h === 'nom' || h === 'nom ');
+  const iPrenom = iNomPrenom !== -1 ? -1 : header.findIndex(h => h.startsWith('pre') || h.startsWith('pré'));
+  const iClasse = header.findIndex(h => h.includes('class'));
+  const iSexe   = header.findIndex(h => h.includes('sexe') || h.includes('genre'));
+  const groups  = {};
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i];
+    let nom, prenom;
+    if (iNomPrenom !== -1) {
+      const sp = splitNomPrenom(String(row[iNomPrenom]||''));
+      nom = sp.nom; prenom = sp.prenom;
+    } else {
+      nom    = String(row[iNom]||'').trim().toUpperCase();
+      prenom = String(row[iPrenom]||'').trim();
+    }
+    if (!nom || !prenom) continue;
+    if (iClasse === -1) continue;
+    const cls = normalizeClasse(String(row[iClasse]||''));
+    if (!isAllowedClass(cls)) continue;
+    const sexe = iSexe !== -1 ? String(row[iSexe]||'M').trim().toUpperCase().charAt(0) : 'M';
+    if (!groups[cls]) groups[cls] = [];
+    groups[cls].push({ nom, prenom, sexe, classe: cls });
+  }
+  return groups;
+}
+
+// ============================================================
 //  PERSISTANCE LOCALE (localStorage)
 // ============================================================
 function saveState() {
@@ -900,7 +991,8 @@ function saveState() {
     localStorage.setItem('vma_data', JSON.stringify({
       classes: state.classes,
       groupA: state.groupA,
-      groupB: state.groupB
+      groupB: state.groupB,
+      knownClasses: CLASSES
     }));
   } catch(e) {}
 }
@@ -910,12 +1002,17 @@ function loadState() {
     const raw = localStorage.getItem('vma_data');
     if (!raw) return;
     const data = JSON.parse(raw);
+    // Reconstruire CLASSES depuis localStorage
+    const stored = data.knownClasses || Object.keys(data.classes || {});
+    for (const cls of stored) {
+      if (data.classes?.[cls]) ensureClass(cls);
+    }
     for (const cls of CLASSES) {
       if (data.classes?.[cls]?.length) state.classes[cls] = data.classes[cls];
     }
     if (data.groupA) state.groupA = data.groupA;
     if (data.groupB) state.groupB = data.groupB;
-    const maxId = Math.max(0, ...CLASSES.flatMap(c => state.classes[c].map(s => s.id)));
+    const maxId = Math.max(0, ...CLASSES.flatMap(c => (state.classes[c]||[]).map(s => s.id)));
     if (maxId > 0) nextId = maxId + 1;
   } catch(e) {}
 }
@@ -1011,48 +1108,57 @@ function fetchSheetGviz(sheetName) {
 async function importFromGoogleSheets() {
   const statusEl = document.getElementById('gsheetStatus');
   const btn = document.getElementById('gsheetImportBtn');
-
   btn.disabled = true;
   statusEl.innerHTML = '<div class="alert alert-info">Chargement en cours…</div>';
 
-  const checks = document.querySelectorAll('.cls-import-check:checked');
-  const checkedIdx = checks.length > 0
-    ? Array.from(checks).map(cb => parseInt(cb.value))
-    : SHEET_TABS.map((_, i) => i);
-  const tabsToImport = SHEET_TABS.filter((_, i) => checkedIdx.includes(i));
+  try {
+    const rows = await fetchSheetGviz(LIST_TAB);
+    const grouped = parseListTab(rows); // { '3eme1': [...], '6eme2': [...], ... }
+    const available = Object.keys(grouped).sort((a,b) => {
+      const na = parseInt(a), nb = parseInt(b);
+      return na !== nb ? na - nb : a.localeCompare(b);
+    });
 
-  let total = 0, errors = [];
+    // Enregistrer les classes disponibles et mettre à jour les cases à cocher
+    available.forEach(ensureClass);
+    renderImportCheckboxes(available);
 
-  for (const tab of tabsToImport) {
-    try {
-      const rows = await fetchSheetGviz(tab);
-      total += parseXLSXSheet(rows, tab);
-    } catch(e) {
-      console.warn('Onglet ' + tab + ' :', e.message);
-      errors.push({ tab, msg: e.message });
+    // Quelles classes sont cochées ?
+    const checks = document.querySelectorAll('.cls-import-check:checked');
+    const selected = checks.length > 0
+      ? Array.from(checks).map(cb => cb.value)
+      : available;
+
+    let total = 0;
+    for (const cls of selected) {
+      const students = grouped[cls] || [];
+      for (const s of students) {
+        if (!state.classes[cls]) state.classes[cls] = [];
+        if (!state.classes[cls].find(x => x.nom===s.nom && x.prenom===s.prenom)) {
+          state.classes[cls].push({ id: nextId++, nom: s.nom, prenom: s.prenom,
+            classe: cls, sexe: s.sexe, eliminated: false, vma: null });
+          total++;
+        }
+      }
     }
-  }
 
-  btn.disabled = false;
-
-  const tabsOk = tabsToImport.length - errors.length;
-  if (tabsOk > 0) {
-    // Réassigner les groupes même si aucun nouvel élève (les élèves déjà présents n'ont pas forcément de groupe)
     autoGroupAfterImport();
+    renderClassTabs();
+    renderResultClassTabs();
     saveState();
-    const lines = tabsToImport.map(tab => {
-      const err = errors.find(e => e.tab === tab);
-      const cls = CLASSES[SHEET_TABS.indexOf(tab)];
-      const count = err ? 0 : state.classes[cls].length;
-      if (err) return `<br>• ${tab} : ❌ ${err.msg}`;
-      return `<br>• ${tab} : ✅ ${count} élève(s)`;
-    }).join('');
+    renderStudentTable();
+    renderGroupPools();
+    renderConfigSummary();
+
+    const lines = selected.map(cls =>
+      `<br>• ${CLASS_LABELS[cls]||cls} : ✅ ${state.classes[cls]?.length||0} élève(s)`
+    ).join('');
     const msg = total > 0 ? `${total} élève(s) importé(s).` : `Liste à jour.`;
     statusEl.innerHTML = `<div class="alert alert-success">${msg} Groupes A/B pré-assignés.${lines}</div>`;
-  } else {
-    const detail = errors.map(e => `<br>• ${e.tab} : ❌ ${e.msg}`).join('');
-    statusEl.innerHTML = `<div class="alert alert-warn">Aucune donnée importée.${detail}</div>`;
+  } catch(e) {
+    statusEl.innerHTML = `<div class="alert alert-warn">Erreur : ${e.message}</div>`;
   }
+  btn.disabled = false;
 }
 
 function parseXLSXSheet(rows, sheetName) {
@@ -1679,54 +1785,32 @@ async function silentSyncFromSheets() {
   const syncEl = document.getElementById('syncStatus');
   if (syncEl) syncEl.textContent = 'Synchronisation…';
   let updated = 0;
-  for (let i = 0; i < SHEET_TABS.length; i++) {
-    const tab = SHEET_TABS[i];
-    const cls = CLASSES[i];
-    try {
-      const rows = await fetchSheetGviz(tab);
-      if (rows.length < 2) continue;
-      // parse rows into temp objects
-      const header = rows[0].map(h => String(h).trim().toLowerCase()
-        .normalize('NFD').replace(/[̀-ͯ]/g,''));
-      const iNomPrenom = header.findIndex(h => h.includes('nom') && (h.includes('pr')));
-      const iNom    = iNomPrenom !== -1 ? -1 : header.findIndex(h => h === 'nom' || h === 'nom ');
-      const iPrenom = iNomPrenom !== -1 ? -1 : header.findIndex(h => h.startsWith('pre') || h.startsWith('pré'));
-      const iSexe   = header.findIndex(h => h.includes('sexe') || h.includes('genre'));
-      if (iNomPrenom === -1 && iNom === -1) continue;
-      const sheetStudents = [];
-      for (let r = 1; r < rows.length; r++) {
-        const row = rows[r];
-        let nom, prenom;
-        if (iNomPrenom !== -1) {
-          const sp = splitNomPrenom(String(row[iNomPrenom] || ''));
-          nom = sp.nom; prenom = sp.prenom;
-        } else {
-          nom    = String(row[iNom] || '').trim().toUpperCase();
-          prenom = String(row[iPrenom] || '').trim();
-        }
-        if (!nom || !prenom) continue;
-        const sexe = iSexe !== -1 ? String(row[iSexe]||'M').trim().toUpperCase().charAt(0) : 'M';
-        sheetStudents.push({ nom, prenom, sexe });
-      }
-      if (sheetStudents.length === 0) continue;
-      // Merge: keep existing students (preserve VMA results), add new ones
-      const existing = state.classes[cls];
-      const existingKeys = new Set(existing.map(s => s.nom + '|' + s.prenom));
-      let added = 0;
-      for (const ss of sheetStudents) {
-        if (!existingKeys.has(ss.nom + '|' + ss.prenom)) {
-          existing.push({ id: nextId++, nom: ss.nom, prenom: ss.prenom,
+  try {
+    const rows = await fetchSheetGviz(LIST_TAB);
+    const grouped = parseListTab(rows);
+    const available = Object.keys(grouped);
+    available.forEach(ensureClass);
+    renderImportCheckboxes(available);
+    for (const cls of available) {
+      if (!state.classes[cls]) state.classes[cls] = [];
+      const existingKeys = new Set(state.classes[cls].map(s => s.nom+'|'+s.prenom));
+      for (const ss of grouped[cls]) {
+        if (!existingKeys.has(ss.nom+'|'+ss.prenom)) {
+          state.classes[cls].push({ id: nextId++, nom: ss.nom, prenom: ss.prenom,
             classe: cls, sexe: ss.sexe, eliminated: false, vma: null });
-          added++;
+          updated++;
         }
       }
-      if (added > 0) updated += added;
-    } catch(e) { /* réseau indisponible, on garde localStorage */ }
-  }
+    }
+  } catch(e) { /* réseau indisponible, on garde localStorage */ }
+
+  renderClassTabs();
+  renderResultClassTabs();
+
   if (updated > 0) {
     for (const cls of CLASSES) {
-      state.classes[cls].sort((a, b) =>
-        a.nom.localeCompare(b.nom, 'fr') || a.prenom.localeCompare(b.prenom, 'fr'));
+      (state.classes[cls]||[]).sort((a,b) =>
+        a.nom.localeCompare(b.nom,'fr') || a.prenom.localeCompare(b.prenom,'fr'));
     }
     saveState();
     renderStudentTable();
@@ -1743,6 +1827,8 @@ async function silentSyncFromSheets() {
 document.addEventListener('DOMContentLoaded', () => {
   try { buildWhistleBuffers(); } catch(e) {}
   loadState();
+  renderClassTabs();
+  renderResultClassTabs();
   renderStudentTable();
   renderGroupPools();
   renderObsSheet();
