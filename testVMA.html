@@ -408,6 +408,7 @@ const state = {
     currentSpeed: 7,
     events: [],
     timers: [],
+    audioSources: [],
     muted: false,
     displayInterval: null
   }
@@ -521,7 +522,7 @@ function startKeepAlive() {
   const buf = ctx.createBuffer(1, sr, sr); // 1s en boucle
   const data = buf.getChannelData(0);
   // Bruit à amplitude infime (≈ −74 dB, inaudible) — iOS ne suspend pas un contexte actif
-  for (let i = 0; i < sr; i++) data[i] = (Math.random() * 2 - 1) * 0.0001;
+  for (let i = 0; i < sr; i++) data[i] = (Math.random() * 2 - 1) * 0.001;
   _keepAliveSrc = ctx.createBufferSource();
   _keepAliveSrc.buffer = buf;
   _keepAliveSrc.loop = true;
@@ -541,9 +542,9 @@ function stopKeepAlive() {
 
 // Joue le sifflet via AudioBufferSourceNode (méthode la plus fiable sur iOS)
 function _playWhistleAt(ctxTime, long) {
-  if (state.test.muted) return;
+  if (state.test.muted) return null;
   const buf = long ? _longBuf : _shortBuf;
-  if (!buf) return;
+  if (!buf) return null;
   try {
     const ctx = getAudioCtx();
     const t = Math.max(ctxTime, ctx.currentTime + 0.005);
@@ -551,7 +552,8 @@ function _playWhistleAt(ctxTime, long) {
     src.buffer = buf;
     src.connect(getMasterGain());
     src.start(t);
-  } catch(e) {}
+    return src;
+  } catch(e) { return null; }
 }
 
 function playWhistle(long = false) {
@@ -680,26 +682,30 @@ async function startTest() {
 }
 
 function scheduleEvents() {
+  const ctx = getAudioCtx();
+  const ctxStart = ctx.currentTime;      // temps WebAudio au démarrage du test
   const wallStart = state.test.startTime;
+
   for (const ev of state.test.events) {
-    const delay = ev.time * 1000 - (Date.now() - wallStart);
-    if (delay < 0) continue;
-    const tid = setTimeout(async () => {
-      if (!state.test.running) return;
-      if (ev.type === 'whistle') {
-        try {
-          const ctx = getAudioCtx();
-          if (ctx.state !== 'running') await ctx.resume();
-          playWhistle(false);
-        } catch(e) {}
-      } else if (ev.type === 'palier-start') {
+    const elapsed = (Date.now() - wallStart) / 1000;
+    if (ev.time <= elapsed) continue;    // événement déjà passé
+
+    if (ev.type === 'whistle') {
+      // Pré-programmé directement dans le planificateur WebAudio (fiable sur iOS)
+      const src = _playWhistleAt(ctxStart + ev.time, false);
+      if (src) state.test.audioSources.push(src);
+    } else if (ev.type === 'palier-start') {
+      // UI seulement via setTimeout
+      const delay = ev.time * 1000 - (Date.now() - wallStart);
+      const tid = setTimeout(() => {
+        if (!state.test.running) return;
         state.test.currentPalier = ev.palier;
         state.test.currentSpeed = ev.speed;
         announceSpeed(ev.palier, ev.speed);
         updateDisplay();
-      }
-    }, delay);
-    state.test.timers.push(tid);
+      }, delay);
+      state.test.timers.push(tid);
+    }
   }
 }
 
@@ -723,6 +729,8 @@ function _stopTest() {
 function clearTestTimers() {
   state.test.timers.forEach(t => clearTimeout(t));
   state.test.timers = [];
+  state.test.audioSources.forEach(src => { try { src.stop(); } catch(e) {} });
+  state.test.audioSources = [];
   stopKeepAlive();
   if (_masterGain) {
     try { _masterGain.gain.setValueAtTime(0, getAudioCtx().currentTime); } catch(e) {}
@@ -893,9 +901,10 @@ function renderResultClassTabs() {
   const container = document.getElementById('resultClassTabs');
   if (!container) return;
   const cur = state.resultClass || 'all';
+  const imported = CLASSES.filter(cls => (state.classes[cls]||[]).length > 0);
   container.innerHTML =
     `<button class="class-tab${cur==='all'?' active':''}" onclick="selectResultClass('all',this)">Toutes classes</button>` +
-    CLASSES.map(cls =>
+    imported.map(cls =>
       `<button class="class-tab${cls===cur?' active':''}" onclick="selectResultClass('${cls}',this)">${CLASS_LABELS[cls]}</button>`
     ).join('');
 }
@@ -1164,6 +1173,7 @@ async function importFromGoogleSheets() {
     }).join('');
     const msg = total > 0 ? `${total} élève(s) importé(s).` : `Liste à jour.`;
     statusEl.innerHTML = `<div class="alert alert-success">${msg} Groupes A/B pré-assignés.${lines}</div>`;
+    setTimeout(() => { statusEl.innerHTML = ''; }, 4000);
   } catch(e) {
     statusEl.innerHTML = `<div class="alert alert-warn">Erreur : ${e.message}</div>`;
   }
@@ -1838,7 +1848,11 @@ async function silentSyncFromSheets() {
 // ============================================================
 document.addEventListener('DOMContentLoaded', () => {
   try { buildWhistleBuffers(); } catch(e) {}
-  loadState();
+  // Effacer toute ancienne sauvegarde avec données élèves
+  try {
+    const old = localStorage.getItem('vma_data');
+    if (old && JSON.parse(old).classes) localStorage.removeItem('vma_data');
+  } catch(e) {}
   renderImportCheckboxes();
   renderClassTabs();
   renderResultClassTabs();
