@@ -906,14 +906,26 @@ function renderImportCheckboxes(availableInSheet) {
     container.innerHTML = '<span style="font-size:.82rem;color:#888">Synchronisez d\'abord pour détecter les classes.</span>';
     return;
   }
-  container.innerHTML = `<div class="flex-gap" style="flex-wrap:wrap;align-items:center">
+  const has6 = all.some(c => c.startsWith('6eme'));
+  const has3 = all.some(c => c.startsWith('3eme'));
+  container.innerHTML = `<div class="flex-gap" style="flex-wrap:wrap;align-items:center;row-gap:6px">
     <span style="font-size:.82rem;font-weight:600;color:#5c6bc0">Classes à importer :</span>
     ${all.map(cls =>
       `<label style="cursor:pointer;font-size:.85rem;display:flex;align-items:center;gap:4px">
         <input type="checkbox" class="cls-import-check" value="${cls}"> ${CLASS_LABELS[cls]||cls}
       </label>`
     ).join('')}
+    ${has6 ? `<button class="btn btn-outline btn-sm" style="font-size:.78rem;padding:2px 8px" onclick="checkAll('6eme')">Tout 6ème</button>` : ''}
+    ${has3 ? `<button class="btn btn-outline btn-sm" style="font-size:.78rem;padding:2px 8px" onclick="checkAll('3eme')">Tout 3ème</button>` : ''}
+    <button class="btn btn-outline btn-sm" style="font-size:.78rem;padding:2px 8px" onclick="checkAll('')">Tout</button>
+    <button class="btn btn-outline btn-sm" style="font-size:.78rem;padding:2px 8px" onclick="checkAll(null)">Aucun</button>
   </div>`;
+}
+
+function checkAll(prefix) {
+  document.querySelectorAll('.cls-import-check').forEach(cb => {
+    cb.checked = prefix === null ? false : (prefix === '' || cb.value.startsWith(prefix));
+  });
 }
 
 // Parse l'onglet unique et retourne les élèves groupés par classe
@@ -1388,14 +1400,14 @@ function renderStudentTable() {
     return;
   }
 
-  const makeRow = (s, i) => {
+  const makeRow = (s, num) => {
     const inA = state.groupA.includes(s.id);
     const inB = state.groupB.includes(s.id);
     const sexeBadge = s.sexe === 'F'
       ? '<span style="font-weight:700;color:#d81b60">F</span>'
       : '<span style="font-weight:700;color:#1565c0">G</span>';
     return `<tr>
-      <td style="width:28px;color:#999;font-size:.8rem">${i+1}</td>
+      <td style="width:28px;color:#999;font-size:.8rem">${num}</td>
       <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><strong>${s.nom}</strong> ${s.prenom}</td>
       <td style="width:22px;text-align:center">${sexeBadge}</td>
       <td style="width:54px;white-space:nowrap">
