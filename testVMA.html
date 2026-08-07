@@ -250,8 +250,8 @@ label{display:block;font-size:.82rem;font-weight:600;color:#5c6bc0;margin-bottom
         <label style="cursor:pointer;display:flex;align-items:center;gap:3px"><input type="radio" name="trackLen" value="100" checked onchange="setTrack(100)"> 100m</label>
         <label style="cursor:pointer;display:flex;align-items:center;gap:3px"><input type="radio" name="trackLen" value="150" onchange="setTrack(150)"> 150m</label>
       </span>
-      <span style="display:flex;align-items:center;gap:6px;font-size:.85rem;font-weight:600;color:#5c6bc0;white-space:nowrap">
-        1er à courir :
+      <span style="display:flex;align-items:center;gap:6px;font-size:.85rem;font-weight:600;color:#5c6bc0;white-space:nowrap;margin-left:16px">
+        1er groupe à courir :
         <label style="cursor:pointer;display:flex;align-items:center;gap:3px"><input type="radio" name="groupStart" value="A" checked> 🏃 A</label>
         <label style="cursor:pointer;display:flex;align-items:center;gap:3px"><input type="radio" name="groupStart" value="B"> 🏃 B</label>
       </span>
@@ -926,31 +926,43 @@ function checkAll(prefix) {
 }
 
 // Parse l'onglet unique et retourne les élèves groupés par classe
+function detectCols(headerRow) {
+  const h = headerRow.map(c => String(c).trim().toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g,''));
+  const iNomPrenom = h.findIndex(x => x.startsWith('nom') && x.includes('pr'));
+  const iNom    = iNomPrenom !== -1 ? -1 : h.findIndex(x => x === 'nom' || x === 'nom ');
+  const iPrenom = iNomPrenom !== -1 ? -1 : h.findIndex(x => x.startsWith('pre') || x.startsWith('pre'));
+  const iClasse = h.findIndex(x => x.includes('class'));
+  const iSexe   = h.findIndex(x => x.includes('sexe') || x.includes('genre'));
+  return { iNomPrenom, iNom, iPrenom, iClasse, iSexe };
+}
+
+function isHeaderRow(row) {
+  const joined = row.map(c => String(c||'').toLowerCase()).join('|');
+  return joined.includes('nom') && (joined.includes('class') || joined.includes('pr'));
+}
+
 function parseListTab(rows) {
   if (rows.length < 2) return {};
-  const header = rows[0].map(h => String(h).trim().toLowerCase()
-    .normalize('NFD').replace(/[̀-ͯ]/g,''));
-  const iNomPrenom = header.findIndex(h => h.startsWith('nom') && h.includes('pr'));
-  const iNom    = iNomPrenom !== -1 ? -1 : header.findIndex(h => h === 'nom' || h === 'nom ');
-  const iPrenom = iNomPrenom !== -1 ? -1 : header.findIndex(h => h.startsWith('pre') || h.startsWith('pré'));
-  const iClasse = header.findIndex(h => h.includes('class'));
-  const iSexe   = header.findIndex(h => h.includes('sexe') || h.includes('genre'));
-  const groups  = {};
+  let cols = detectCols(rows[0]);
+  const groups = {};
   for (let i = 1; i < rows.length; i++) {
     const row = rows[i];
+    // Re-détecter les colonnes si c'est une nouvelle ligne d'en-tête
+    if (isHeaderRow(row)) { cols = detectCols(row); continue; }
     let nom, prenom;
-    if (iNomPrenom !== -1) {
-      const sp = splitNomPrenom(String(row[iNomPrenom]||''));
+    if (cols.iNomPrenom !== -1) {
+      const sp = splitNomPrenom(String(row[cols.iNomPrenom]||''));
       nom = sp.nom; prenom = sp.prenom;
     } else {
-      nom    = String(row[iNom]||'').trim().toUpperCase();
-      prenom = String(row[iPrenom]||'').trim();
+      nom    = String(row[cols.iNom] ?? '').trim().toUpperCase();
+      prenom = String(row[cols.iPrenom] ?? '').trim();
     }
-    if (!nom || !prenom) continue;
-    if (iClasse === -1) continue;
-    const cls = normalizeClasse(String(row[iClasse]||''));
+    if (!nom || !prenom || nom === '?' || nom.length < 2) continue;
+    if (cols.iClasse === -1) continue;
+    const cls = normalizeClasse(String(row[cols.iClasse]||''));
     if (!isAllowedClass(cls)) continue;
-    const sexe = iSexe !== -1 ? String(row[iSexe]||'M').trim().toUpperCase().charAt(0) : 'M';
+    const sexe = cols.iSexe !== -1 ? String(row[cols.iSexe]||'M').trim().toUpperCase().charAt(0) : 'M';
     if (!groups[cls]) groups[cls] = [];
     groups[cls].push({ nom, prenom, sexe, classe: cls });
   }
@@ -1140,14 +1152,11 @@ async function importFromGoogleSheets() {
     renderConfigSummary();
 
     const lines = selected.map(cls => {
-      const found = grouped[cls]?.length || 0;
-      return `<br>• ${CLASS_LABELS[cls]||cls} : ${found > 0 ? '✅' : '⚠️'} ${state.classes[cls]?.length||0} élève(s) en mémoire (${found} dans la feuille)`;
+      const n = state.classes[cls]?.length || 0;
+      return `<br>• ${CLASS_LABELS[cls]||cls} : ${n > 0 ? '✅' : '⚠️'} ${n} élève(s)`;
     }).join('');
-    const detectedRaw = available.length > 0
-      ? `<br><span style="font-size:.78rem;color:#555">Classes détectées dans la feuille : ${available.map(c=>CLASS_LABELS[c]||c).join(', ')}</span>`
-      : `<br><span style="font-size:.78rem;color:#c62828">Aucune classe reconnue dans la feuille.</span>`;
     const msg = total > 0 ? `${total} élève(s) importé(s).` : `Liste à jour.`;
-    statusEl.innerHTML = `<div class="alert alert-success">${msg} Groupes A/B pré-assignés.${lines}${detectedRaw}</div>`;
+    statusEl.innerHTML = `<div class="alert alert-success">${msg} Groupes A/B pré-assignés.${lines}</div>`;
   } catch(e) {
     statusEl.innerHTML = `<div class="alert alert-warn">Erreur : ${e.message}</div>`;
   }
