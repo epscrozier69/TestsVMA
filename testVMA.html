@@ -230,24 +230,6 @@ label{display:block;font-size:.82rem;font-weight:600;color:#5c6bc0;margin-bottom
     <div id="gsheetStatus" style="margin-top:10px"></div>
   </div>
 
-  <!-- Récapitulatif + Lancer -->
-  <div class="card">
-    <h2>✅ Récapitulatif &amp; Lancement</h2>
-    <div id="configSummary"></div>
-    <div style="margin-top:16px">
-      <label style="font-size:.85rem;font-weight:700;color:#1a237e">Groupe qui court en premier :</label>
-      <div class="flex-gap mt-8">
-        <label style="cursor:pointer;font-weight:600;display:flex;align-items:center;gap:6px">
-          <input type="radio" name="groupStart" value="A" checked> 🏃 Groupe A</label>
-        <label style="cursor:pointer;font-weight:600;display:flex;align-items:center;gap:6px">
-          <input type="radio" name="groupStart" value="B"> 🏃 Groupe B</label>
-      </div>
-    </div>
-    <div class="flex-gap mt-12">
-      <button class="btn btn-success" onclick="goToTest()">▶️ Lancer le test</button>
-    </div>
-  </div>
-
   <!-- Divs cachés nécessaires au JS (renderGroupPools) -->
   <div style="display:none">
     <div id="poolUnassigned"></div>
@@ -255,15 +237,22 @@ label{display:block;font-size:.82rem;font-weight:600;color:#5c6bc0;margin-bottom
     <div id="poolB"></div>
   </div>
 
-  <!-- Onglets de classe + liste élèves -->
+  <!-- Carte fusionnée : récap + liste élèves -->
   <div class="card">
-    <div class="class-tabs" id="classTabs" style="margin-bottom:14px"></div>
-    <h2>👥 Élèves — <span id="currentClassLabel"></span>
-      <span id="studentCount" class="badge badge-blue" style="margin-left:8px">0 élève(s)</span>
-      <span id="cntA" class="badge" style="margin-left:6px;background:#e3f2fd;color:#1565c0">A : 0</span>
-      <span id="cntB" class="badge" style="margin-left:4px;background:#ede7f6;color:#4527a0">B : 0</span>
-      <button class="btn btn-danger btn-sm" style="margin-left:auto" onclick="clearClass()">Vider la liste</button>
-    </h2>
+    <div class="class-tabs" id="classTabs" style="margin-bottom:10px"></div>
+    <!-- Ligne récap inline -->
+    <div style="display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px">
+      <span style="font-weight:700;font-size:.95rem;color:#1a237e;white-space:nowrap">👥 <span id="currentClassLabel"></span></span>
+      <span id="studentCount" class="badge badge-blue">0 élève(s)</span>
+      <div id="configSummary" style="display:contents"></div>
+      <span style="font-size:.82rem;font-weight:700;color:#5c6bc0;white-space:nowrap">1er à courir :</span>
+      <label style="cursor:pointer;font-size:.85rem;font-weight:600;display:flex;align-items:center;gap:3px;white-space:nowrap">
+        <input type="radio" name="groupStart" value="A" checked> 🏃 A</label>
+      <label style="cursor:pointer;font-size:.85rem;font-weight:600;display:flex;align-items:center;gap:3px;white-space:nowrap">
+        <input type="radio" name="groupStart" value="B"> 🏃 B</label>
+      <button class="btn btn-success btn-sm" onclick="goToTest()" style="white-space:nowrap">▶️ Lancer</button>
+      <button class="btn btn-danger btn-sm" style="margin-left:auto;white-space:nowrap" onclick="clearClass()">🗑 Vider</button>
+    </div>
     <div id="studentTable"></div>
   </div>
 
@@ -1378,37 +1367,46 @@ function showTab(id) {
 
 function renderStudentTable() {
   const students = state.classes[state.currentClass];
-  const cntA = state.groupA.filter(id => students.find(s => s.id === id)).length;
-  const cntB = state.groupB.filter(id => students.find(s => s.id === id)).length;
   document.getElementById('studentCount').textContent = `${students.length} élève(s)`;
-  document.getElementById('cntA').textContent = `A : ${cntA}`;
-  document.getElementById('cntB').textContent = `B : ${cntB}`;
 
+  const container = document.getElementById('studentTable');
   if (students.length === 0) {
-    document.getElementById('studentTable').innerHTML = '<p class="text-muted" style="padding:12px 0">Aucun élève — importez depuis Google Sheets ou ajoutez manuellement.</p>';
+    container.innerHTML = '<p class="text-muted" style="padding:12px 0">Aucun élève — importez depuis Google Sheets.</p>';
     return;
   }
 
-  const rows = students.map((s, i) => {
+  const makeRow = (s, i) => {
     const inA = state.groupA.includes(s.id);
     const inB = state.groupB.includes(s.id);
+    const sexeBadge = s.sexe === 'F'
+      ? '<span style="font-weight:700;color:#d81b60">F</span>'
+      : '<span style="font-weight:700;color:#1565c0">G</span>';
     return `<tr>
-      <td>${i+1}</td>
-      <td><strong>${s.nom}</strong> ${s.prenom}</td>
-      <td><span class="badge badge-blue">${CLASS_LABELS[s.classe]}</span></td>
-      <td>${s.sexe === 'F' ? '♀ Fille' : '♂ Garçon'}</td>
-      <td style="white-space:nowrap">
-        <span class="grp-btn grp-a${inA ? ' active' : ''}" onclick="assignGroup(${s.id},'${inA ? 'none' : 'A'}')">A</span>
-        <span class="grp-btn grp-b${inB ? ' active' : ''}" style="margin-left:3px" onclick="assignGroup(${s.id},'${inB ? 'none' : 'B'}')">B</span>
+      <td style="width:28px;color:#999;font-size:.8rem">${i+1}</td>
+      <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><strong>${s.nom}</strong> ${s.prenom}</td>
+      <td style="width:22px;text-align:center">${sexeBadge}</td>
+      <td style="width:54px;white-space:nowrap">
+        <span class="grp-btn grp-a${inA?' active':''}" onclick="assignGroup(${s.id},'${inA?'none':'A'}')">A</span>
+        <span class="grp-btn grp-b${inB?' active':''}" style="margin-left:3px" onclick="assignGroup(${s.id},'${inB?'none':'B'}')">B</span>
       </td>
     </tr>`;
-  }).join('');
+  };
 
-  document.getElementById('studentTable').innerHTML = `
-    <table class="tbl">
-      <thead><tr><th>#</th><th>Nom Prénom</th><th>Classe</th><th>Sexe</th><th>Groupe</th><th></th></tr></thead>
-      <tbody>${rows}</tbody>
+  const half = Math.ceil(students.length / 2);
+  const col1 = students.slice(0, half);
+  const col2 = students.slice(half);
+
+  const makeTable = (list, offset) => `
+    <table class="tbl" style="width:100%">
+      <thead><tr><th>#</th><th>Nom Prénom</th><th>S</th><th>Grp</th></tr></thead>
+      <tbody>${list.map((s, i) => makeRow(s, offset + i + 1)).join('')}</tbody>
     </table>`;
+
+  container.innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;align-items:start">
+      ${makeTable(col1, 0)}
+      ${makeTable(col2, half)}
+    </div>`;
 }
 
 function renderGroupPools() {
@@ -1437,21 +1435,12 @@ function renderConfigSummary() {
   const runners = students.filter(s => state.groupA.includes(s.id));
   const observers = students.filter(s => state.groupB.includes(s.id));
 
-  document.getElementById('configSummary').innerHTML = `
-    <div class="flex-gap" style="align-items:center;flex-wrap:wrap;gap:10px">
-      <span class="badge badge-blue">🏃 ${runners.length} coureur(s)</span>
-      <span class="badge badge-purple">👁️ ${observers.length} observateur(s)</span>
-      <span style="display:flex;align-items:center;gap:8px;font-size:.88rem;font-weight:600;color:#e65100">
-        🏟️
-        <label style="cursor:pointer;display:flex;align-items:center;gap:4px">
-          <input type="radio" name="trackLen" value="100" ${state.trackLength===100?'checked':''} onchange="setTrack(100)"> 100 m
-        </label>
-        <label style="cursor:pointer;display:flex;align-items:center;gap:4px">
-          <input type="radio" name="trackLen" value="150" ${state.trackLength===150?'checked':''} onchange="setTrack(150)"> 150 m
-        </label>
-      </span>
-    </div>
-    ${runners.length === 0 ? '<p class="alert alert-warn" style="margin-top:10px">Aucun coureur sélectionné.</p>' : ''}`;
+  document.getElementById('configSummary').innerHTML =
+    `<span class="badge" style="background:#e8f5e9;color:#2e7d32">🏃 ${runners.length} coureur(s)</span>` +
+    `<span class="badge badge-purple">👁️ ${observers.length} observateur(s)</span>` +
+    `<span style="display:flex;align-items:center;gap:6px;font-size:.85rem;font-weight:600;color:#e65100;white-space:nowrap">` +
+    `🏟️<label style="cursor:pointer;display:flex;align-items:center;gap:3px"><input type="radio" name="trackLen" value="100" ${state.trackLength===100?'checked':''} onchange="setTrack(100)"> 100m</label>` +
+    `<label style="cursor:pointer;display:flex;align-items:center;gap:3px"><input type="radio" name="trackLen" value="150" ${state.trackLength===150?'checked':''} onchange="setTrack(150)"> 150m</label></span>`;
 }
 
 function renderTestGrid() {
