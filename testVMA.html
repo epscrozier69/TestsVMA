@@ -1263,6 +1263,7 @@ ${tableHTML}
 // ============================================================
 function autoGroupAfterImport() {
   for (const cls of CLASSES) {
+    if (!state.classes[cls]?.length) continue;
     state.classes[cls].sort((a, b) =>
       a.nom.localeCompare(b.nom, 'fr') || a.prenom.localeCompare(b.prenom, 'fr')
     );
@@ -1271,7 +1272,7 @@ function autoGroupAfterImport() {
   state.groupB = [];
   for (const cls of CLASSES) {
     const students = state.classes[cls];
-    if (!students.length) continue;
+    if (!students?.length) continue;
     const half = Math.ceil(students.length / 2);
     students.forEach((s, i) => {
       if (i < half) state.groupA.push(s.id);
@@ -1432,7 +1433,7 @@ function renderStudentTable() {
 }
 
 function renderGroupPools() {
-  const students = state.classes[state.configClass];
+  const students = state.classes[state.configClass] || [];
   const unassigned = students.filter(s => !state.groupA.includes(s.id) && !state.groupB.includes(s.id));
   const groupA = students.filter(s => state.groupA.includes(s.id));
   const groupB = students.filter(s => state.groupB.includes(s.id));
