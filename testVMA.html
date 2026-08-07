@@ -955,8 +955,15 @@ function parseListTab(rows) {
       const sp = splitNomPrenom(String(row[cols.iNomPrenom]||''));
       nom = sp.nom; prenom = sp.prenom;
     } else {
-      nom    = String(row[cols.iNom] ?? '').trim().toUpperCase();
-      prenom = String(row[cols.iPrenom] ?? '').trim();
+      const rawNom = String(row[cols.iNom] ?? '').trim();
+      prenom = cols.iPrenom !== -1 ? String(row[cols.iPrenom] ?? '').trim() : '';
+      if (!prenom && rawNom.includes(' ')) {
+        // Nom Prénom fusionné dans la colonne Nom
+        const sp = splitNomPrenom(rawNom);
+        nom = sp.nom; prenom = sp.prenom;
+      } else {
+        nom = rawNom.toUpperCase();
+      }
     }
     if (!nom || !prenom || nom === '?' || nom.length < 2) continue;
     if (cols.iClasse === -1) continue;
