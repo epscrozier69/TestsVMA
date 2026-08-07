@@ -1804,43 +1804,13 @@ function showSyncStatus(msg) {
 //  SYNC SILENCIEUX AU DÉMARRAGE (Google Sheets → localStorage)
 // ============================================================
 async function silentSyncFromSheets() {
-  const syncEl = document.getElementById('syncStatus');
-  if (syncEl) syncEl.textContent = 'Synchronisation…';
-  let updated = 0;
+  // Détecte uniquement les classes disponibles dans la feuille (sans importer les élèves)
   try {
     const rows = await fetchSheetGviz(LIST_TAB);
     const grouped = parseListTab(rows);
     const available = Object.keys(grouped);
-    available.forEach(ensureClass);
     renderImportCheckboxes(available);
-    for (const cls of available) {
-      if (!state.classes[cls]) state.classes[cls] = [];
-      const existingKeys = new Set(state.classes[cls].map(s => s.nom+'|'+s.prenom));
-      for (const ss of grouped[cls]) {
-        if (!existingKeys.has(ss.nom+'|'+ss.prenom)) {
-          state.classes[cls].push({ id: nextId++, nom: ss.nom, prenom: ss.prenom,
-            classe: cls, sexe: ss.sexe, eliminated: false, vma: null });
-          updated++;
-        }
-      }
-    }
-  } catch(e) { /* réseau indisponible, on garde localStorage */ }
-
-  renderClassTabs();
-  renderResultClassTabs();
-
-  if (updated > 0) {
-    for (const cls of CLASSES) {
-      (state.classes[cls]||[]).sort((a,b) =>
-        a.nom.localeCompare(b.nom,'fr') || a.prenom.localeCompare(b.prenom,'fr'));
-    }
-    saveState();
-    renderStudentTable();
-    renderGroupPools();
-    renderConfigSummary();
-  }
-  if (syncEl) syncEl.textContent = updated > 0 ? `✅ +${updated} élève(s) synchronisé(s)` : '✅ À jour';
-  setTimeout(() => { if (syncEl) syncEl.textContent = ''; }, 4000);
+  } catch(e) {}
 }
 
 // ============================================================
