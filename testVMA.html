@@ -991,6 +991,9 @@ function parseListTab(rows) {
 function saveState() {
   try {
     localStorage.setItem('vma_data', JSON.stringify({
+      classes: state.classes,
+      groupA: state.groupA,
+      groupB: state.groupB,
       knownClasses: CLASSES,
       trackLength: state.trackLength
     }));
@@ -1002,20 +1005,20 @@ function loadState() {
     const raw = localStorage.getItem('vma_data');
     if (!raw) return;
     const data = JSON.parse(raw);
-    // Restaure seulement la liste des classes connues (pas les élèves)
-    const stored = data.knownClasses || [];
+    // Restaurer uniquement les classes qui ont des élèves
+    const stored = data.knownClasses || Object.keys(data.classes || {});
     for (const cls of stored) {
-      if (!CLASSES.includes(cls)) {
-        CLASSES.push(cls);
-        CLASS_LABELS[cls] = formatClassLabel(cls);
+      if (data.classes?.[cls]?.length) {
+        if (!CLASSES.includes(cls)) { CLASSES.push(cls); CLASS_LABELS[cls] = formatClassLabel(cls); }
+        state.classes[cls] = data.classes[cls];
+        if (!state.currentClass) { state.currentClass = cls; state.configClass = cls; }
       }
     }
-    CLASSES.sort((a, b) => {
-      const na = parseInt(a), nb = parseInt(b);
-      if (na !== nb) return na - nb;
-      return a.localeCompare(b);
-    });
+    if (data.groupA) state.groupA = data.groupA;
+    if (data.groupB) state.groupB = data.groupB;
     if (data.trackLength) state.trackLength = data.trackLength;
+    const maxId = Math.max(0, ...Object.values(state.classes).flat().map(s => s.id).filter(Number.isFinite));
+    if (maxId > 0) nextId = maxId + 1;
   } catch(e) {}
 }
 
@@ -1818,11 +1821,7 @@ async function silentSyncFromSheets() {
 // ============================================================
 document.addEventListener('DOMContentLoaded', () => {
   try { buildWhistleBuffers(); } catch(e) {}
-  // Effacer toute ancienne sauvegarde avec données élèves
-  try {
-    const old = localStorage.getItem('vma_data');
-    if (old && JSON.parse(old).classes) localStorage.removeItem('vma_data');
-  } catch(e) {}
+  loadState();
   renderImportCheckboxes();
   renderClassTabs();
   renderResultClassTabs();
