@@ -528,10 +528,10 @@ function startKeepAlive() {
   _keepAliveSrc.loop = true;
   _keepAliveSrc.connect(ctx.destination);
   _keepAliveSrc.start();
-  // Filet de sécurité : toutes les 3s, forcer la reprise si suspendu
+  // Filet de sécurité : toutes les 1s, forcer la reprise si suspendu
   _keepAliveInterval = setInterval(() => {
     if (ctx.state === 'suspended') ctx.resume();
-  }, 3000);
+  }, 1000);
 }
 
 function stopKeepAlive() {
@@ -682,13 +682,11 @@ async function startTest() {
 }
 
 function scheduleEvents() {
-  const ctx = getAudioCtx();
-  const ctxStart = ctx.currentTime;
   const wallStart = state.test.startTime;
-  const LOOKAHEAD = 0.3; // programmer 300ms à l'avance
-  const TICK_MS   = 100; // vérifier toutes les 100ms
+  const LOOKAHEAD_MS = 250; // jouer 250ms à l'avance dans le clock WebAudio
+  const TICK_MS      = 50;  // vérifier toutes les 50ms (horloge murale)
 
-  // --- UI : changements de palier via setTimeout ---
+  // --- UI : changements de palier ---
   for (const ev of state.test.events) {
     if (ev.type !== 'palier-start') continue;
     const delay = ev.time * 1000 - (Date.now() - wallStart);
@@ -703,21 +701,29 @@ function scheduleEvents() {
     state.test.timers.push(tid);
   }
 
-  // --- Audio : look-ahead scheduler (iOS-safe) ---
+  // --- Audio : scheduler basé sur Date.now() (résiste à la suspension iOS) ---
   const whistles = state.test.events.filter(ev => ev.type === 'whistle');
   let wi = 0;
 
   function tick() {
     if (!state.test.running) return;
-    const now = ctx.currentTime;
-    while (wi < whistles.length && (ctxStart + whistles[wi].time) <= now + LOOKAHEAD) {
-      const t = ctxStart + whistles[wi].time;
-      if (t > now - 0.05) {
-        const src = _playWhistleAt(t, false);
-        if (src) state.test.audioSources.push(src);
+    const ctx = getAudioCtx();
+
+    // Forcer la reprise si suspendu
+    if (ctx.state !== 'running') ctx.resume().catch(() => {});
+
+    const wallElapsed = Date.now() - wallStart; // ms écoulées depuis le départ
+
+    while (wi < whistles.length) {
+      const evMs = whistles[wi].time * 1000;
+      if (evMs > wallElapsed + LOOKAHEAD_MS) break; // pas encore l'heure
+      if (evMs >= wallElapsed - 150) {              // pas trop en retard
+        const delayCtx = Math.max(0.01, (evMs - wallElapsed) / 1000 + 0.02);
+        _playWhistleAt(ctx.currentTime + delayCtx, false);
       }
       wi++;
     }
+
     if (wi < whistles.length) {
       const tid = setTimeout(tick, TICK_MS);
       state.test.timers.push(tid);
