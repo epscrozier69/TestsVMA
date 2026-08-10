@@ -324,7 +324,6 @@ label{display:block;font-size:.82rem;font-weight:600;color:#5c6bc0;margin-bottom
 <div id="tab-resultats" class="tab-content">
   <div class="flex-gap" style="margin-bottom:16px" id="resultControls">
     <button class="btn btn-success" onclick="exportExcel()">📤 Exporter Excel</button>
-    <button class="btn btn-outline" onclick="exportCSV()">📄 Exporter CSV</button>
     <button id="btnSyncSheet" class="btn btn-primary" onclick="syncAllResultsToSheet()">☁️ Sauvegarder dans Google Sheets</button>
     <label class="btn btn-primary" style="cursor:pointer" title="Charger un fichier Excel exporté précédemment">
       📥 Charger résultats
@@ -450,13 +449,13 @@ function elapsed() {
 }
 function getStudentById(id) {
   for (const c of CLASSES) {
-    const s = state.classes[c].find(x => x.id === id);
+    const s = (state.classes[c] || []).find(x => x.id === id);
     if (s) return s;
   }
   return null;
 }
 function allStudents() {
-  return CLASSES.flatMap(c => state.classes[c]);
+  return CLASSES.flatMap(c => state.classes[c] || []);
 }
 
 // ============================================================
@@ -1000,6 +999,8 @@ function loadState() {
     if (data.trackLength) state.trackLength = data.trackLength;
     const maxId = Math.max(0, ...Object.values(state.classes).flat().map(s => s.id).filter(Number.isFinite));
     if (maxId > 0) nextId = maxId + 1;
+    // Garantir que toutes les classes connues ont au moins un tableau vide
+    for (const cls of CLASSES) { if (!state.classes[cls]) state.classes[cls] = []; }
   } catch(e) {}
 }
 
@@ -1306,6 +1307,7 @@ function assignGroup(id, group) {
   renderStudentTable();
   renderGroupPools();
   renderConfigSummary();
+  saveState();
 }
 
 function autoGroups() {
