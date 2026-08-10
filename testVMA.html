@@ -109,7 +109,7 @@ label{display:block;font-size:.82rem;font-weight:600;color:#5c6bc0;margin-bottom
 .grp-btn:hover{opacity:.8}
 .grp-btn.grp-a.active{background:#1565c0;color:#fff;border-color:#1565c0}
 .grp-btn.grp-b.active{background:#6a1b9a;color:#fff;border-color:#6a1b9a}
-.obs-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;align-items:start}
+.obs-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;align-items:start}
 .obs-table{width:100%;border-collapse:collapse}
 .obs-table thead th{background:#1a237e;color:#fff;padding:8px 10px;text-align:center;font-size:.9rem;font-weight:700}
 .obs-table td{padding:7px 10px;border:1px solid #dde2f0;text-align:center}
@@ -331,6 +331,7 @@ label{display:block;font-size:.82rem;font-weight:600;color:#5c6bc0;margin-bottom
   <div class="flex-gap" style="margin-bottom:16px" id="resultControls">
     <button class="btn btn-success" onclick="exportExcel()">📤 Exporter Excel</button>
     <button id="btnSyncSheet" class="btn btn-primary" onclick="syncAllResultsToSheet()">☁️ Sauvegarder dans Google Sheets</button>
+    <button class="btn btn-primary" onclick="loadResultsFromSheets()">☁️ Charger depuis Drive</button>
     <label class="btn btn-primary" style="cursor:pointer" title="Charger un fichier Excel exporté précédemment">
       📥 Charger résultats
       <input type="file" id="resultImportFile" accept=".xlsx,.xls" onchange="importResults(this)" style="display:none">
@@ -345,6 +346,14 @@ label{display:block;font-size:.82rem;font-weight:600;color:#5c6bc0;margin-bottom
   <div class="card">
     <h2>📊 Résultats VMA</h2>
     <div id="resultsTable"></div>
+  </div>
+
+  <div class="card" id="sheetsResultsCard" style="display:none;margin-top:16px">
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px">
+      <h2 style="margin:0">☁️ Résultats sur Drive</h2>
+      <span id="sheetsResultsStatus" style="color:#666;font-size:.85rem"></span>
+    </div>
+    <div id="sheetsResultsTable"></div>
   </div>
 </div>
 
@@ -1242,7 +1251,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;padding:4mm}
 .id-field{flex:1}
 .id-label{font-size:7pt;color:#777;font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-bottom:1px}
 .id-value{border-bottom:1.5px solid #333;padding:2px 4px;min-height:18px;font-size:10pt;font-weight:700;color:#1a237e}
-.obs-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;align-items:start}
+.obs-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:5px;align-items:start}
 .obs-table{width:100%;border-collapse:collapse}
 .obs-table thead th{background:#1a237e;color:#fff;padding:3px 4px;text-align:center;font-size:7.5pt;font-weight:700}
 .obs-table td{padding:3px 4px;border:1px solid #dde2f0;text-align:center}
@@ -1564,8 +1573,8 @@ function renderObsSheet() {
   const trackLen = parseInt(document.getElementById('obsPiste').value) || state.trackLength;
   const paliers = generateObserverTimes(trackLen);
 
-  // 4 colonnes équilibrées : P1-P3 | P4-P6 | P7-P9 | P10-P12
-  const groups = [ paliers.slice(0,3), paliers.slice(3,6), paliers.slice(6,9), paliers.slice(9,12) ];
+  // 3 colonnes équilibrées : P1-P4 | P5-P8 | P9-P12
+  const groups = [ paliers.slice(0,4), paliers.slice(4,8), paliers.slice(8,12) ];
   let whistleNum = 0;
 
   let html = '<div class="obs-grid">';
@@ -1775,6 +1784,45 @@ async function pushResultToSheet(students) {
     showSyncStatus(`✅ ${results.length} résultat(s) sauvegardé(s)`);
   } catch(e) {
     showSyncStatus('⚠️ Sauvegarde échouée (réseau ?)');
+  }
+}
+
+async function loadResultsFromSheets() {
+  const card   = document.getElementById('sheetsResultsCard');
+  const status = document.getElementById('sheetsResultsStatus');
+  const table  = document.getElementById('sheetsResultsTable');
+  card.style.display = 'block';
+  status.textContent = '⏳ Chargement…';
+  table.innerHTML = '';
+  try {
+    const rows = await fetchSheetGviz('Résultats');
+    // rows[0] = en-têtes, rows[1..] = données
+    const data = rows.slice(1).filter(r => r[1]);
+    if (!data.length) {
+      status.textContent = '⚠️ Aucun résultat sur Drive.';
+      return;
+    }
+    // Colonnes : Date(0) Nom(1) Prénom(2) Classe(3) Sexe(4) Palier(5) VMA(6) Temps(7) Distance(8)
+    const trs = data.map(r => `<tr>
+      <td>${r[0]}</td>
+      <td><strong>${r[1]}</strong> ${r[2]}</td>
+      <td><span class="badge badge-blue">${r[3]}</span></td>
+      <td>${r[4] === 'F' ? '♀' : '♂'}</td>
+      <td>${r[5]}</td>
+      <td>${r[6] ? r[6] + ' km/h' : '—'}</td>
+      <td>${r[7] ? r[7] + ' s' : '—'}</td>
+      <td>${r[8] ? r[8] + ' m' : '—'}</td>
+    </tr>`).join('');
+    table.innerHTML = `<table class="tbl">
+      <thead><tr>
+        <th>Date</th><th>Nom Prénom</th><th>Classe</th><th>Sexe</th>
+        <th>Palier</th><th>VMA</th><th>Temps</th><th>Distance</th>
+      </tr></thead>
+      <tbody>${trs}</tbody>
+    </table>`;
+    status.textContent = `✅ ${data.length} résultat(s)`;
+  } catch(e) {
+    status.textContent = '❌ Erreur : ' + e.message;
   }
 }
 
