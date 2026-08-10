@@ -226,10 +226,16 @@ label{display:block;font-size:.82rem;font-weight:600;color:#5c6bc0;margin-bottom
       Cliquez sur "Synchroniser" pour détecter les classes disponibles.
     </div>
     <div class="flex-gap">
-      <button class="btn btn-primary" id="gsheetImportBtn" onclick="importFromGoogleSheets()">🔄 Synchroniser depuis Google Sheets</button>
+      <button class="btn btn-primary" id="gsheetImportBtn" onclick="importFromGoogleSheets()">🔄 Importer depuis Google Sheets</button>
       <button class="btn btn-outline btn-sm" style="color:#c62828;border-color:#ef9a9a" onclick="clearSavedState()">🗑 Effacer les données</button>
     </div>
     <div id="gsheetStatus" style="margin-top:10px"></div>
+    <hr style="margin:10px 0;border-color:#e0e0e0">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <button class="btn btn-success btn-sm" onclick="saveConfigToSheet()">☁️ Sauvegarder sur Drive</button>
+      <button class="btn btn-outline btn-sm" onclick="loadAndApplyConfig(true)">🔄 Restaurer depuis Drive</button>
+      <span id="syncStatus" style="font-size:.8rem;color:#666;font-style:italic"></span>
+    </div>
   </div>
 
   <!-- Divs cachés nécessaires au JS (renderGroupPools) -->
@@ -384,6 +390,7 @@ label{display:block;font-size:.82rem;font-weight:600;color:#5c6bc0;margin-bottom
 // ============================================================
 //  STATE
 // ============================================================
+const CONFIG_TAB = 'Config'; // Onglet dédié à la synchro inter-appareils
 const SHEET_ID = '1ExFoJwg4aIXzta0FO_CkFU72uAFGH649jjrglUPcKsE';
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbx7nUnN_obrtSJ0XcxczA8ByK7QAtggxoaVeeKuzMXSOzfxmJ2ViITaDuGJVyaME9LV/exec';
 const LIST_TAB = 'Liste des élèves du collège';
@@ -566,22 +573,22 @@ function planEvents() {
 
   events.push({ time: 0, type: 'palier-start', palier: 1, speed: 7 });
 
-  for (let p = 1; p <= 20; p++) {
+  for (let p = 1; p <= 12; p++) {
     const spd = palierSpeed(p);
     const spdMs = spd * 1000 / 3600;
     const iv = 50 / spdMs;
 
-    // Même logique que generateObserverTimes : carry-over de la distance résiduelle
     const nextMark = (Math.floor(globalDist / 50 + 1e-9) + 1) * 50;
     const timeToFirst = (nextMark - globalDist) / spdMs;
 
-    // Sifflets uniquement aux 50m DANS le palier — jamais à 120s pile (changement de palier)
-    for (let t = timeToFirst; t < 120 - 0.001; t += iv) {
+    // t <= 120 + 0.001 : inclure les sifflets qui tombent exactement à la limite
+    // de palier (ex : 500m à t=240s, 800m à t=360s...) — même logique que generateObserverTimes
+    for (let t = timeToFirst; t <= 120 + 0.001; t += iv) {
       events.push({ time: globalTime + t, type: 'whistle' });
     }
 
-    if (p < 20) {
-      // Palier-start à 120.05s pour passer après tout sifflet à 120s
+    if (p < 12) {
+      // Palier-start 50ms après la limite pour passer juste après l'éventuel sifflet à 120s
       events.push({ time: globalTime + 120.05, type: 'palier-start', palier: p + 1, speed: palierSpeed(p + 1) });
     }
 
@@ -1340,7 +1347,7 @@ function generateObserverTimes(trackLen) {
   let globalTime = 0;
   let globalDist = 0; // distance totale parcourue au début de chaque palier
 
-  for (let p = 1; p <= 10; p++) {
+  for (let p = 1; p <= 12; p++) {
     const spd = palierSpeed(p);
     const spdMs = spd * 1000 / 3600; // m/s
     const iv = 50 / spdMs; // secondes par 50m
@@ -1557,8 +1564,8 @@ function renderObsSheet() {
   const trackLen = parseInt(document.getElementById('obsPiste').value) || state.trackLength;
   const paliers = generateObserverTimes(trackLen);
 
-  // 4 colonnes équilibrées : P1-P3 | P4-P6 | P7-P8 | P9-P10
-  const groups = [ paliers.slice(0,3), paliers.slice(3,6), paliers.slice(6,8), paliers.slice(8,10) ];
+  // 4 colonnes équilibrées : P1-P3 | P4-P6 | P7-P9 | P10-P12
+  const groups = [ paliers.slice(0,3), paliers.slice(3,6), paliers.slice(6,9), paliers.slice(9,12) ];
   let whistleNum = 0;
 
   let html = '<div class="obs-grid">';
@@ -1787,6 +1794,87 @@ function showSyncStatus(msg) {
 }
 
 // ============================================================
+//  SYNC INTER-APPAREILS (Google Sheets ← → localStorage)
+// ============================================================
+async function saveConfigToSheet() {
+  const el = document.getElementById('syncStatus');
+  el.textContent = '⏳ Sauvegarde…';
+  const imported = CLASSES.filter(c => (state.classes[c]||[]).length > 0);
+  const toKey = id => { const s = getStudentById(id); return s ? s.nom + '|' + s.prenom : null; };
+  const cfg = JSON.stringify({
+    classes:     imported,
+    groupA:      state.groupA.map(toKey).filter(Boolean),
+    groupB:      state.groupB.map(toKey).filter(Boolean),
+    trackLength: state.trackLength,
+    savedAt:     new Date().toISOString()
+  });
+  try {
+    await fetch(SCRIPT_URL, {
+      method: 'POST', mode: 'no-cors',
+      body: JSON.stringify({ action: 'saveConfig', data: cfg })
+    });
+    el.textContent = '✅ Sauvegardé le ' + new Date().toLocaleString('fr-FR');
+  } catch(e) { el.textContent = '❌ Erreur réseau'; }
+}
+
+// showFeedback=true : affiche un retour visuel (bouton manuel)
+// showFeedback=false : silencieux (démarrage auto, seulement si aucune donnée locale)
+async function loadAndApplyConfig(showFeedback) {
+  const el = document.getElementById('syncStatus');
+  if (showFeedback) el.textContent = '⏳ Récupération…';
+  try {
+    const rows = await fetchSheetGviz(CONFIG_TAB);
+    if (!rows.length || !rows[0][0]) {
+      if (showFeedback) el.textContent = '⚠️ Aucune sauvegarde trouvée sur Drive.';
+      return false;
+    }
+    const cfg = JSON.parse(String(rows[0][0]));
+
+    // Importer les classes manquantes depuis la feuille élèves
+    const sheetRows = await fetchSheetGviz(LIST_TAB);
+    const grouped   = parseListTab(sheetRows);
+    for (const cls of (cfg.classes || [])) {
+      if (!(state.classes[cls]||[]).length && grouped[cls]?.length) {
+        if (!CLASSES.includes(cls)) { CLASSES.push(cls); CLASS_LABELS[cls] = formatClassLabel(cls); }
+        const base = Math.max(nextId, 0, ...Object.values(state.classes).flat().map(s=>s.id).filter(Number.isFinite));
+        state.classes[cls] = grouped[cls].map((s, i) => ({...s, id: base+i+1, eliminated:false, vma:null}));
+        nextId = base + grouped[cls].length + 1;
+      }
+    }
+
+    // Appliquer les groupes par nom (robuste : les IDs peuvent différer d'un appareil à l'autre)
+    const findId = key => {
+      const [nom, prenom] = key.split('|');
+      for (const c of CLASSES) {
+        const s = (state.classes[c]||[]).find(x => x.nom===nom && x.prenom===prenom);
+        if (s) return s.id;
+      }
+      return null;
+    };
+    if (cfg.groupA || cfg.groupB) {
+      state.groupA = (cfg.groupA||[]).map(findId).filter(Boolean);
+      state.groupB = (cfg.groupB||[]).map(findId).filter(Boolean);
+    }
+    if (cfg.trackLength) {
+      state.trackLength = cfg.trackLength;
+      document.querySelectorAll('input[name="trackLen"]').forEach(r => r.checked = Number(r.value) === cfg.trackLength);
+    }
+
+    saveState();
+    renderClassTabs(); renderResultClassTabs(); renderStudentTable(); renderGroupPools(); renderConfigSummary();
+
+    if (cfg.savedAt) {
+      const d = new Date(cfg.savedAt);
+      el.textContent = '☁️ Restauré (sauvegardé le ' + d.toLocaleString('fr-FR') + ')';
+    }
+    return true;
+  } catch(e) {
+    if (showFeedback) el.textContent = '❌ Erreur : ' + e.message;
+    return false;
+  }
+}
+
+// ============================================================
 //  SYNC SILENCIEUX AU DÉMARRAGE (Google Sheets → localStorage)
 // ============================================================
 async function silentSyncFromSheets() {
@@ -1812,6 +1900,9 @@ document.addEventListener('DOMContentLoaded', () => {
   renderObsSheet();
   renderConfigSummary();
   silentSyncFromSheets();
+  // Auto-restauration depuis Drive si aucune donnée locale
+  const hasLocal = CLASSES.some(c => (state.classes[c]||[]).length > 0);
+  if (!hasLocal) loadAndApplyConfig(false);
 });
 </script>
 </body>
