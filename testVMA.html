@@ -460,124 +460,64 @@ function allStudents() {
 }
 
 // ============================================================
-//  AUDIO (Web Audio API + Speech Synthesis)
+//  AUDIO (HTMLAudioElement — Web Audio API non fonctionnel sur cet iPad)
 // ============================================================
-let _audioCtx = null;
-function getAudioCtx() {
-  if (!_audioCtx) _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  return _audioCtx;
-}
-// iOS fix: crée un contexte NEUF depuis un handler de geste (le contexte pré-geste reste muet)
-function getFreshAudioCtx() {
-  if (_audioCtx) { try { _audioCtx.close(); } catch(e) {} _audioCtx = null; }
-  _masterGain = null; _masterComp = null;
-  _shortBuf = null; _longBuf = null;
-  if (_keepAliveInterval) { clearInterval(_keepAliveInterval); _keepAliveInterval = null; }
-  _keepAliveSrc = null;
-  _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  _audioCtx.resume();
-  return _audioCtx;
-}
+let _shortAudio = null, _longAudio = null;
 
-// Buffers pré-rendus du sifflet (court et long) — AudioBufferSourceNode est
-// plus fiable qu'OscillatorNode pour la planification future sur iOS Safari
-let _shortBuf = null, _longBuf = null, _keepAliveSrc = null, _keepAliveInterval = null, _masterGain = null, _masterComp = null;
-
-function buildWhistleBuffers() {
-  // Génération mathématique du PCM — aucune dépendance à OfflineAudioContext
-  const ctx = getAudioCtx();
-  const sr = ctx.sampleRate || 44100;
+function _buildWhistleWAV(dur) {
+  const sr = 22050;
   const freqs = [[3700,2600,0.9],[2900,2100,0.7],[1800,1400,0.4]];
-
-  for (const [dur, isLong] of [[0.75, false],[1.8, true]]) {
-    const buf = ctx.createBuffer(1, Math.ceil(dur * sr) + 512, sr);
-    const data = buf.getChannelData(0);
-    const phases = [0,0,0];
-    for (let i = 0; i < data.length; i++) {
-      const t = i / sr;
-      const env = t < 0.01 ? t/0.01
-                : t < dur*0.6 ? 1.0
-                : t < dur     ? 1.0 - (t - dur*0.6)/(dur*0.4)
-                : 0;
-      let s = 0;
-      freqs.forEach(([f1,f2,vol],k) => {
-        const freq = f1 + (f2-f1) * Math.min(t/(dur*0.75), 1);
-        phases[k] = (phases[k] + freq/sr) % 1;
-        s += (phases[k]*2 - 1) * vol * env; // onde dent de scie
-      });
-      data[i] = Math.max(-1, Math.min(1, s/3));
-    }
-    if (isLong) _longBuf = buf; else _shortBuf = buf;
+  const n = Math.ceil(dur * sr);
+  const pcm = new Int16Array(n);
+  const phases = [0,0,0];
+  for (let i = 0; i < n; i++) {
+    const t = i / sr;
+    const env = t < 0.01 ? t/0.01 : t < dur*0.6 ? 1 : t < dur ? 1-(t-dur*0.6)/(dur*0.4) : 0;
+    let s = 0;
+    freqs.forEach(([f1,f2,vol],k) => {
+      const freq = f1 + (f2-f1)*Math.min(t/(dur*0.75),1);
+      phases[k] = (phases[k]+freq/sr) % 1;
+      s += (phases[k]*2-1)*vol*env;
+    });
+    pcm[i] = Math.max(-32767, Math.min(32767, Math.round(s/3*32767)));
   }
+  const wl = 44 + n*2;
+  const ab = new ArrayBuffer(wl);
+  const v = new DataView(ab);
+  const ws = (o,str) => { for(let i=0;i<str.length;i++) v.setUint8(o+i,str.charCodeAt(i)); };
+  ws(0,'RIFF'); v.setUint32(4,wl-8,true); ws(8,'WAVE'); ws(12,'fmt ');
+  v.setUint32(16,16,true); v.setUint16(20,1,true); v.setUint16(22,1,true);
+  v.setUint32(24,sr,true); v.setUint32(28,sr*2,true);
+  v.setUint16(32,2,true); v.setUint16(34,16,true);
+  ws(36,'data'); v.setUint32(40,n*2,true);
+  for (let i=0;i<n;i++) v.setInt16(44+i*2,pcm[i],true);
+  return new Blob([ab], {type:'audio/wav'});
 }
 
-function getMasterGain() {
-  const ctx = getAudioCtx();
-  if (!_masterGain) {
-    _masterComp = ctx.createDynamicsCompressor();
-    _masterComp.threshold.value=-6; _masterComp.knee.value=3;
-    _masterComp.ratio.value=12; _masterComp.attack.value=0.001; _masterComp.release.value=0.1;
-    _masterComp.connect(ctx.destination);
-    _masterGain = ctx.createGain();
-    _masterGain.gain.value = 1;
-    _masterGain.connect(_masterComp);
-  }
-  return _masterGain;
-}
-
-// Keep-alive : bruit blanc très faible (non-silencieux) pour empêcher iOS de suspendre l'AudioContext
-function startKeepAlive() {
-  const ctx = getAudioCtx();
-  ctx.onstatechange = () => { if (ctx.state==='suspended') ctx.resume(); };
-  if (_keepAliveSrc) return;
-  const sr = ctx.sampleRate;
-  const buf = ctx.createBuffer(1, sr, sr); // 1s en boucle
-  const data = buf.getChannelData(0);
-  // Bruit à amplitude infime (≈ −74 dB, inaudible) — iOS ne suspend pas un contexte actif
-  for (let i = 0; i < sr; i++) data[i] = (Math.random() * 2 - 1) * 0.001;
-  _keepAliveSrc = ctx.createBufferSource();
-  _keepAliveSrc.buffer = buf;
-  _keepAliveSrc.loop = true;
-  _keepAliveSrc.connect(ctx.destination);
-  _keepAliveSrc.start();
-  // Filet de sécurité : toutes les 1s, forcer la reprise si suspendu
-  _keepAliveInterval = setInterval(() => {
-    if (ctx.state === 'suspended') ctx.resume();
-  }, 1000);
-}
-
-function stopKeepAlive() {
-  if (_keepAliveInterval) { clearInterval(_keepAliveInterval); _keepAliveInterval = null; }
-  if (_keepAliveSrc) { try{_keepAliveSrc.stop();_keepAliveSrc.disconnect();}catch(e){} _keepAliveSrc=null; }
-  if (_audioCtx) _audioCtx.onstatechange = null;
-}
-
-// Joue le sifflet via AudioBufferSourceNode (méthode la plus fiable sur iOS)
-function _playWhistleAt(ctxTime, long) {
-  if (state.test.muted) return null;
-  const buf = long ? _longBuf : _shortBuf;
-  if (!buf) return null;
+function buildWhistleAudio() {
+  if (_shortAudio && _longAudio) return;
   try {
-    const ctx = getAudioCtx();
-    const t = Math.max(ctxTime, ctx.currentTime + 0.005);
-    const src = ctx.createBufferSource();
-    src.buffer = buf;
-    src.connect(getMasterGain());
-    src.start(t);
-    return src;
-  } catch(e) { return null; }
+    _shortAudio = new Audio(URL.createObjectURL(_buildWhistleWAV(0.75)));
+    _shortAudio.preload = 'auto';
+    _longAudio  = new Audio(URL.createObjectURL(_buildWhistleWAV(1.8)));
+    _longAudio.preload  = 'auto';
+  } catch(e) {}
 }
 
-function playWhistle(long = false) {
-  _playWhistleAt(getAudioCtx().currentTime, long);
+// Déverrouille le sifflet court — DOIT être appelé depuis un handler de geste (clic)
+function _unlockShortAudio() {
+  if (!_shortAudio) return;
+  const p = _shortAudio.play();
+  if (p) p.then(() => { _shortAudio.pause(); _shortAudio.currentTime = 0; }).catch(() => {});
 }
 
-// Débloque l'AudioContext dès le premier toucher
-function _unlockAudio() {
-  try { const ctx=getAudioCtx(); if(ctx.state==='suspended') ctx.resume(); } catch(e){}
+function playWhistle(long) {
+  if (state.test.muted) return;
+  const a = long ? _longAudio : _shortAudio;
+  if (!a) return;
+  a.currentTime = 0;
+  a.play().catch(() => {});
 }
-document.addEventListener('touchstart', _unlockAudio, { once: true });
-document.addEventListener('click',      _unlockAudio, { once: true });
 
 function announceSpeed(palier, speed) {
   if (state.test.muted || !('speechSynthesis' in window)) return;
@@ -648,23 +588,12 @@ function getActiveRunners() {
     .filter(s => s && s.classe === cls);
 }
 
-// Bouton de diagnostic : crée un contexte frais et joue un bip simple
+// Bouton de diagnostic : joue un sifflet court via HTMLAudioElement
 function testSon() {
-  try {
-    const ctx = getFreshAudioCtx(); // Contexte neuf depuis le geste
-    const sr = ctx.sampleRate;
-    const buf = ctx.createBuffer(1, Math.floor(sr * 0.5), sr);
-    const data = buf.getChannelData(0);
-    for (let i = 0; i < data.length; i++) {
-      const t = i / sr;
-      const env = t < 0.01 ? t/0.01 : t > 0.4 ? Math.max(0, 1-(t-0.4)/0.1) : 1;
-      data[i] = Math.sin(2 * Math.PI * 880 * t) * 0.8 * env;
-    }
-    const src = ctx.createBufferSource();
-    src.buffer = buf;
-    src.connect(ctx.destination);
-    src.start();
-  } catch(e) { alert('Erreur Web Audio : ' + e.message); }
+  buildWhistleAudio();
+  if (!_shortAudio) { alert('Impossible de créer le son'); return; }
+  _shortAudio.currentTime = 0;
+  _shortAudio.play().catch(e => alert('Erreur audio : ' + e.message));
 }
 
 function goToTest() {
@@ -695,11 +624,10 @@ function startTest() {
   document.getElementById('test-not-started').style.display = 'none';
   document.getElementById('test-running-ui').style.display = 'block';
 
-  // iOS fix: contexte NEUF depuis le handler de geste (le contexte pré-geste reste muet sur iOS)
-  getFreshAudioCtx();
-  try { buildWhistleBuffers(); } catch(e) {}
-  startKeepAlive();
-  playWhistle(true);
+  // Audio dans le handler de geste (iOS exige cela pour HTMLAudioElement)
+  buildWhistleAudio();
+  _unlockShortAudio(); // Déverrouille le sifflet court pour les futurs setTimeout
+  playWhistle(true);   // Sifflet long de départ (déverrouille _longAudio aussi)
   announceSpeed(1, 7);
 
   scheduleEvents();
@@ -709,49 +637,39 @@ function startTest() {
 
 function scheduleEvents() {
   const wallStart = state.test.startTime;
-  const LOOKAHEAD_MS = 250; // jouer 250ms à l'avance dans le clock WebAudio
-  const TICK_MS      = 50;  // vérifier toutes les 50ms (horloge murale)
 
-  // --- UI : changements de palier ---
+  // Changements de palier (UI + annonce vocale)
   for (const ev of state.test.events) {
     if (ev.type !== 'palier-start') continue;
     const delay = ev.time * 1000 - (Date.now() - wallStart);
-    if (delay < 0) continue;
+    if (delay < -100) continue;
     const tid = setTimeout(() => {
       if (!state.test.running) return;
       state.test.currentPalier = ev.palier;
       state.test.currentSpeed  = ev.speed;
       announceSpeed(ev.palier, ev.speed);
       updateDisplay();
-    }, delay);
+    }, Math.max(0, delay));
     state.test.timers.push(tid);
   }
 
-  // --- Audio : scheduler basé sur Date.now() (résiste à la suspension iOS) ---
+  // Sifflets aux 50m via HTMLAudioElement + setTimeout horloge murale
   const whistles = state.test.events.filter(ev => ev.type === 'whistle');
   let wi = 0;
 
   function tick() {
     if (!state.test.running) return;
-    const ctx = getAudioCtx();
+    const elapsed = Date.now() - wallStart;
 
-    // Forcer la reprise si suspendu
-    if (ctx.state !== 'running') ctx.resume().catch(() => {});
-
-    const wallElapsed = Date.now() - wallStart; // ms écoulées depuis le départ
-
-    while (wi < whistles.length) {
-      const evMs = whistles[wi].time * 1000;
-      if (evMs > wallElapsed + LOOKAHEAD_MS) break; // pas encore l'heure
-      if (evMs >= wallElapsed - 150) {              // pas trop en retard
-        const delayCtx = Math.max(0.01, (evMs - wallElapsed) / 1000 + 0.02);
-        _playWhistleAt(ctx.currentTime + delayCtx, false);
-      }
+    while (wi < whistles.length && whistles[wi].time * 1000 <= elapsed + 80) {
+      if (whistles[wi].time * 1000 >= elapsed - 300) playWhistle(false);
       wi++;
     }
 
     if (wi < whistles.length) {
-      const tid = setTimeout(tick, TICK_MS);
+      // Se réveille 80ms avant le prochain sifflet (précision sans surcharge)
+      const msUntilNext = whistles[wi].time * 1000 - elapsed;
+      const tid = setTimeout(tick, Math.max(30, msUntilNext - 80));
       state.test.timers.push(tid);
     }
   }
@@ -778,17 +696,7 @@ function _stopTest() {
 function clearTestTimers() {
   state.test.timers.forEach(t => clearTimeout(t));
   state.test.timers = [];
-  state.test.audioSources.forEach(src => { try { src.stop(); } catch(e) {} });
   state.test.audioSources = [];
-  stopKeepAlive();
-  // Fade out but keep _masterGain reference so next startTest can reset it
-  if (_masterGain) {
-    try {
-      const ctx = getAudioCtx();
-      _masterGain.gain.cancelScheduledValues(ctx.currentTime);
-      _masterGain.gain.setValueAtTime(0, ctx.currentTime);
-    } catch(e) {}
-  }
 }
 
 // ============================================================
