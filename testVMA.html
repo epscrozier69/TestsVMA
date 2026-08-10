@@ -1253,13 +1253,13 @@ body{font-family:'Segoe UI',system-ui,sans-serif;padding:4mm}
 .id-value{border-bottom:1.5px solid #333;padding:2px 4px;min-height:18px;font-size:10pt;font-weight:700;color:#1a237e}
 .obs-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:5px;align-items:start}
 .obs-table{width:100%;border-collapse:collapse}
-.obs-table thead th{background:#1a237e;color:#fff;padding:3px 4px;text-align:center;font-size:7.5pt;font-weight:700}
-.obs-table td{padding:3px 4px;border:1px solid #dde2f0;text-align:center}
-.obs-sep td{background:#1a237e;color:#fff;font-weight:700;font-size:7pt;padding:3px 5px;text-align:center;border:none}
-.obs-sep-speed{display:inline-block;background:#ff9800;color:#fff;border-radius:3px;padding:0 5px;font-size:6.5pt;margin-left:4px}
-.obs-num{color:#1a237e;font-weight:700;font-size:8pt;width:22px}
-.obs-dist{font-size:7.5pt;color:#555;font-weight:600;width:32px}
-.obs-time{font-weight:800;font-size:9pt;color:#1a237e;letter-spacing:.3px}
+.obs-table thead th{background:#1a237e;color:#fff;padding:2px 3px;text-align:center;font-size:7pt;font-weight:700}
+.obs-table td{padding:2px 3px;border:1px solid #dde2f0;text-align:center}
+.obs-sep td{background:#1a237e;color:#fff;font-weight:700;font-size:6.5pt;padding:2px 4px;text-align:center;border:none}
+.obs-sep-speed{display:inline-block;background:#ff9800;color:#fff;border-radius:3px;padding:0 4px;font-size:6pt;margin-left:3px}
+.obs-num{color:#1a237e;font-weight:700;font-size:7.5pt;width:18px}
+.obs-dist{font-size:7pt;color:#555;font-weight:600;width:28px}
+.obs-time{font-weight:800;font-size:8pt;color:#1a237e;letter-spacing:.2px}
 .obs-check{width:22px;text-align:center}
 .obs-check input[type=checkbox]{-webkit-appearance:none;appearance:none;width:9pt;height:9pt;border:1.5px solid #333;display:inline-block;vertical-align:middle}
 .obs-lapend{border-bottom:2px solid #90caf9!important}
@@ -1397,6 +1397,7 @@ function selectResultClass(cls, btn) {
   document.querySelectorAll('#resultClassTabs .class-tab').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
   renderResultsTable();
+  if (document.getElementById('sheetsResultsCard').style.display !== 'none') loadResultsFromSheets();
 }
 
 function setTrack(len) {
@@ -1573,8 +1574,8 @@ function renderObsSheet() {
   const trackLen = parseInt(document.getElementById('obsPiste').value) || state.trackLength;
   const paliers = generateObserverTimes(trackLen);
 
-  // 3 colonnes équilibrées : P1-P4 | P5-P8 | P9-P12
-  const groups = [ paliers.slice(0,4), paliers.slice(4,8), paliers.slice(8,12) ];
+  // 3 colonnes : P1-P5 | P6-P9 | P10-P12
+  const groups = [ paliers.slice(0,5), paliers.slice(5,9), paliers.slice(9,12) ];
   let whistleNum = 0;
 
   let html = '<div class="obs-grid">';
@@ -1797,7 +1798,8 @@ async function loadResultsFromSheets() {
   try {
     const rows = await fetchSheetGviz('Résultats');
     // rows[0] = en-têtes, rows[1..] = données
-    const data = rows.slice(1).filter(r => r[1]);
+    const filterClass = state.resultClass === 'all' ? null : (CLASS_LABELS[state.resultClass] || state.resultClass);
+    const data = rows.slice(1).filter(r => r[1] && (!filterClass || r[3] === filterClass));
     if (!data.length) {
       status.textContent = '⚠️ Aucun résultat sur Drive.';
       return;
