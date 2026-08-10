@@ -467,6 +467,17 @@ function getAudioCtx() {
   if (!_audioCtx) _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   return _audioCtx;
 }
+// iOS fix: crée un contexte NEUF depuis un handler de geste (le contexte pré-geste reste muet)
+function getFreshAudioCtx() {
+  if (_audioCtx) { try { _audioCtx.close(); } catch(e) {} _audioCtx = null; }
+  _masterGain = null; _masterComp = null;
+  _shortBuf = null; _longBuf = null;
+  if (_keepAliveInterval) { clearInterval(_keepAliveInterval); _keepAliveInterval = null; }
+  _keepAliveSrc = null;
+  _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  _audioCtx.resume();
+  return _audioCtx;
+}
 
 // Buffers pré-rendus du sifflet (court et long) — AudioBufferSourceNode est
 // plus fiable qu'OscillatorNode pour la planification future sur iOS Safari
@@ -637,17 +648,22 @@ function getActiveRunners() {
     .filter(s => s && s.classe === cls);
 }
 
-// Bouton de diagnostic : vérifie si le Web Audio fonctionne sur cet appareil
+// Bouton de diagnostic : crée un contexte frais et joue un bip simple
 function testSon() {
   try {
-    const ctx = getAudioCtx();
-    ctx.resume();
-    try { buildWhistleBuffers(); } catch(e) {}
-    if (!_shortBuf) { alert('Buffers non créés — Web Audio peut être bloqué.'); return; }
+    const ctx = getFreshAudioCtx(); // Contexte neuf depuis le geste
+    const sr = ctx.sampleRate;
+    const buf = ctx.createBuffer(1, Math.floor(sr * 0.5), sr);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < data.length; i++) {
+      const t = i / sr;
+      const env = t < 0.01 ? t/0.01 : t > 0.4 ? Math.max(0, 1-(t-0.4)/0.1) : 1;
+      data[i] = Math.sin(2 * Math.PI * 880 * t) * 0.8 * env;
+    }
     const src = ctx.createBufferSource();
-    src.buffer = _shortBuf;
-    src.connect(ctx.destination); // Connexion directe sans gain/compresseur
-    src.start(ctx.currentTime + 0.05);
+    src.buffer = buf;
+    src.connect(ctx.destination);
+    src.start();
   } catch(e) { alert('Erreur Web Audio : ' + e.message); }
 }
 
@@ -663,19 +679,6 @@ function goToTest() {
 }
 
 function startTest() {
-  // iOS : tout le code audio doit s'exécuter de façon synchrone dans le handler de geste
-  // (un await rompt le contexte de geste et iOS coupe le son)
-  const ctx = getAudioCtx();
-  ctx.resume(); // Synchrone, pas d'await
-
-  // Réinitialiser le gain master avant de tout arrêter
-  if (_masterGain) {
-    try {
-      _masterGain.gain.cancelScheduledValues(ctx.currentTime);
-      _masterGain.gain.setValueAtTime(1, ctx.currentTime);
-    } catch(e) {}
-  }
-
   clearTestTimers();
 
   state.test.running = true;
@@ -692,7 +695,8 @@ function startTest() {
   document.getElementById('test-not-started').style.display = 'none';
   document.getElementById('test-running-ui').style.display = 'block';
 
-  // Reconstruire les buffers à chaque démarrage (iOS fix: buffers créés avant geste peuvent être muets)
+  // iOS fix: contexte NEUF depuis le handler de geste (le contexte pré-geste reste muet sur iOS)
+  getFreshAudioCtx();
   try { buildWhistleBuffers(); } catch(e) {}
   startKeepAlive();
   playWhistle(true);
@@ -1868,7 +1872,6 @@ async function silentSyncFromSheets() {
 //  INIT
 // ============================================================
 document.addEventListener('DOMContentLoaded', () => {
-  try { buildWhistleBuffers(); } catch(e) {}
   loadState();
   renderImportCheckboxes();
   renderClassTabs();
