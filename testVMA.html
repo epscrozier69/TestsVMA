@@ -683,30 +683,47 @@ async function startTest() {
 
 function scheduleEvents() {
   const ctx = getAudioCtx();
-  const ctxStart = ctx.currentTime;      // temps WebAudio au démarrage du test
+  const ctxStart = ctx.currentTime;
   const wallStart = state.test.startTime;
+  const LOOKAHEAD = 0.3; // programmer 300ms à l'avance
+  const TICK_MS   = 100; // vérifier toutes les 100ms
 
+  // --- UI : changements de palier via setTimeout ---
   for (const ev of state.test.events) {
-    const elapsed = (Date.now() - wallStart) / 1000;
-    if (ev.time <= elapsed) continue;    // événement déjà passé
+    if (ev.type !== 'palier-start') continue;
+    const delay = ev.time * 1000 - (Date.now() - wallStart);
+    if (delay < 0) continue;
+    const tid = setTimeout(() => {
+      if (!state.test.running) return;
+      state.test.currentPalier = ev.palier;
+      state.test.currentSpeed  = ev.speed;
+      announceSpeed(ev.palier, ev.speed);
+      updateDisplay();
+    }, delay);
+    state.test.timers.push(tid);
+  }
 
-    if (ev.type === 'whistle') {
-      // Pré-programmé directement dans le planificateur WebAudio (fiable sur iOS)
-      const src = _playWhistleAt(ctxStart + ev.time, false);
-      if (src) state.test.audioSources.push(src);
-    } else if (ev.type === 'palier-start') {
-      // UI seulement via setTimeout
-      const delay = ev.time * 1000 - (Date.now() - wallStart);
-      const tid = setTimeout(() => {
-        if (!state.test.running) return;
-        state.test.currentPalier = ev.palier;
-        state.test.currentSpeed = ev.speed;
-        announceSpeed(ev.palier, ev.speed);
-        updateDisplay();
-      }, delay);
+  // --- Audio : look-ahead scheduler (iOS-safe) ---
+  const whistles = state.test.events.filter(ev => ev.type === 'whistle');
+  let wi = 0;
+
+  function tick() {
+    if (!state.test.running) return;
+    const now = ctx.currentTime;
+    while (wi < whistles.length && (ctxStart + whistles[wi].time) <= now + LOOKAHEAD) {
+      const t = ctxStart + whistles[wi].time;
+      if (t > now - 0.05) {
+        const src = _playWhistleAt(t, false);
+        if (src) state.test.audioSources.push(src);
+      }
+      wi++;
+    }
+    if (wi < whistles.length) {
+      const tid = setTimeout(tick, TICK_MS);
       state.test.timers.push(tid);
     }
   }
+  tick();
 }
 
 function stopTest() {
