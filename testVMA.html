@@ -233,7 +233,6 @@ label{display:block;font-size:.82rem;font-weight:600;color:#5c6bc0;margin-bottom
     <hr style="margin:10px 0;border-color:#e0e0e0">
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
       <button class="btn btn-success btn-sm" onclick="saveConfigToSheet()">☁️ Sauvegarder sur Drive</button>
-      <button class="btn btn-outline btn-sm" onclick="loadAndApplyConfig(true)">🔄 Restaurer depuis Drive</button>
       <span id="syncStatus" style="font-size:.8rem;color:#666;font-style:italic"></span>
     </div>
   </div>
@@ -1242,26 +1241,26 @@ function printObsSheet() {
 <title>Fiche Observateur — Test VMA</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'Segoe UI',system-ui,sans-serif;padding:4mm}
-@page{size:A4 portrait;margin:5mm}
-.hdr{text-align:center;border-bottom:2px solid #1a237e;padding-bottom:5px;margin-bottom:7px}
-.hdr h1{font-size:11pt;color:#1a237e;font-weight:800}
-.hdr p{font-size:7.5pt;color:#555;margin-top:2px}
-.identite{display:flex;gap:16px;margin-bottom:8px}
+body{font-family:'Segoe UI',system-ui,sans-serif;padding:2mm}
+@page{size:A4 portrait;margin:3mm}
+.hdr{text-align:center;border-bottom:2px solid #1a237e;padding-bottom:3px;margin-bottom:4px}
+.hdr h1{font-size:10pt;color:#1a237e;font-weight:800}
+.hdr p{font-size:7pt;color:#555;margin-top:1px}
+.identite{display:flex;gap:12px;margin-bottom:5px}
 .id-field{flex:1}
-.id-label{font-size:7pt;color:#777;font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-bottom:1px}
-.id-value{border-bottom:1.5px solid #333;padding:2px 4px;min-height:18px;font-size:10pt;font-weight:700;color:#1a237e}
-.obs-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:5px;align-items:start}
+.id-label{font-size:6.5pt;color:#777;font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-bottom:1px}
+.id-value{border-bottom:1.5px solid #333;padding:1px 3px;min-height:14px;font-size:9pt;font-weight:700;color:#1a237e}
+.obs-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;align-items:start}
 .obs-table{width:100%;border-collapse:collapse}
-.obs-table thead th{background:#1a237e;color:#fff;padding:2px 3px;text-align:center;font-size:7pt;font-weight:700}
-.obs-table td{padding:2px 3px;border:1px solid #dde2f0;text-align:center}
-.obs-sep td{background:#1a237e;color:#fff;font-weight:700;font-size:6.5pt;padding:2px 4px;text-align:center;border:none}
-.obs-sep-speed{display:inline-block;background:#ff9800;color:#fff;border-radius:3px;padding:0 4px;font-size:6pt;margin-left:3px}
-.obs-num{color:#1a237e;font-weight:700;font-size:7.5pt;width:18px}
-.obs-dist{font-size:7pt;color:#555;font-weight:600;width:28px}
-.obs-time{font-weight:800;font-size:8pt;color:#1a237e;letter-spacing:.2px}
-.obs-check{width:22px;text-align:center}
-.obs-check input[type=checkbox]{-webkit-appearance:none;appearance:none;width:9pt;height:9pt;border:1.5px solid #333;display:inline-block;vertical-align:middle}
+.obs-table thead th{background:#1a237e;color:#fff;padding:1px 2px;text-align:center;font-size:6.5pt;font-weight:700}
+.obs-table td{padding:1px 2px;border:1px solid #dde2f0;text-align:center;line-height:1.1}
+.obs-sep td{background:#1a237e;color:#fff;font-weight:700;font-size:6pt;padding:1px 3px;text-align:center;border:none}
+.obs-sep-speed{display:inline-block;background:#ff9800;color:#fff;border-radius:3px;padding:0 3px;font-size:5.5pt;margin-left:2px}
+.obs-num{color:#1a237e;font-weight:700;font-size:7pt;width:16px}
+.obs-dist{font-size:6.5pt;color:#555;font-weight:600;width:26px}
+.obs-time{font-weight:800;font-size:7.5pt;color:#1a237e;letter-spacing:.2px}
+.obs-check{width:18px;text-align:center}
+.obs-check input[type=checkbox]{-webkit-appearance:none;appearance:none;width:8pt;height:8pt;border:1.5px solid #333;display:inline-block;vertical-align:middle}
 .obs-lapend{border-bottom:2px solid #90caf9!important}
 </style></head>
 <body>
@@ -1950,9 +1949,7 @@ document.addEventListener('DOMContentLoaded', () => {
   renderObsSheet();
   renderConfigSummary();
   silentSyncFromSheets();
-  // Auto-restauration depuis Drive si aucune donnée locale
-  const hasLocal = CLASSES.some(c => (state.classes[c]||[]).length > 0);
-  if (!hasLocal) loadAndApplyConfig(false);
+  loadAndApplyConfig(false); // Toujours synchroniser depuis Drive au démarrage
 });
 </script>
 </body>
