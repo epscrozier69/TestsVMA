@@ -993,6 +993,17 @@ function saveState() {
       trackLength: state.trackLength
     }));
   } catch(e) {}
+  scheduleConfigAutoSync();
+}
+
+// Pousse automatiquement la config (classes/groupes/piste) vers Google Sheets
+// après chaque saveState(), pour que tous les appareils retrouvent le même état.
+let _autoSyncTimer = null;
+let _suppressAutoSync = false;
+function scheduleConfigAutoSync() {
+  if (_suppressAutoSync || !SCRIPT_URL) return;
+  clearTimeout(_autoSyncTimer);
+  _autoSyncTimer = setTimeout(() => { saveConfigToSheet(); }, 1200);
 }
 
 function loadState() {
@@ -1912,7 +1923,9 @@ async function loadAndApplyConfig(showFeedback) {
       document.querySelectorAll('input[name="trackLen"]').forEach(r => r.checked = Number(r.value) === cfg.trackLength);
     }
 
+    _suppressAutoSync = true;
     saveState();
+    _suppressAutoSync = false;
     renderClassTabs(); renderResultClassTabs(); renderStudentTable(); renderGroupPools(); renderConfigSummary();
 
     if (cfg.savedAt) {
