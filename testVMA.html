@@ -1416,6 +1416,7 @@ function selectResultClass(cls, btn) {
 function setTrack(len) {
   state.trackLength = len;
   renderObsSheet();
+  saveState();
 }
 
 function showTab(id) {
@@ -1426,7 +1427,7 @@ function showTab(id) {
   const map = { general:0, test:1, resultats:2, observateur:3 };
   if (map[id] !== undefined) tabs[map[id]].classList.add('active');
 
-  if (id === 'resultats') renderResultsTable();
+  if (id === 'resultats') { renderResultsTable(); loadResultsFromSheets(); }
   if (id === 'observateur') renderObsSheet();
   if (id === 'test' && !state.test.running) {
     document.getElementById('test-not-started').style.display = 'block';
@@ -1761,6 +1762,8 @@ function importResults(input) {
       alert(`${total} résultat(s) chargé(s).`);
       renderResultsTable();
       renderStudentTable();
+      saveState();
+      syncAllResultsToSheet();
     } catch(err) { alert('Erreur : ' + err.message); }
     input.value = '';
   };
