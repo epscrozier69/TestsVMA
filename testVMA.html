@@ -77,7 +77,8 @@ label{display:block;font-size:.82rem;font-weight:600;color:#5c6bc0;margin-bottom
 .student-btn{padding:12px 16px;border:none;border-radius:10px;cursor:pointer;font-size:.85rem;font-weight:600;text-align:left;transition:all .25s;min-width:140px;position:relative;box-shadow:0 2px 6px rgba(0,0,0,.1)}
 .student-btn.running{background:linear-gradient(135deg,#1565c0,#1a237e);color:#fff}
 .student-btn.running:hover{transform:scale(1.04);box-shadow:0 4px 12px rgba(21,101,192,.4)}
-.student-btn.eliminated{background:#eceff1;color:#90a4ae;cursor:default;text-decoration:line-through}
+.student-btn.eliminated{background:#eceff1;color:#90a4ae;cursor:pointer;text-decoration:line-through}
+.student-btn.eliminated:hover{background:#cfd8dc}
 .student-btn .s-name{font-size:.95rem}
 .student-btn .s-class{font-size:.72rem;opacity:.8;margin-top:2px}
 .student-btn .s-badge{position:absolute;top:6px;right:8px;font-size:.7rem;font-weight:800;padding:2px 6px;border-radius:10px;background:rgba(255,255,255,.25)}
@@ -770,6 +771,23 @@ function eliminateStudent(id) {
   }
 }
 
+// Annule un clic d'élimination fait par erreur pendant le test (re-clic sur la carte de l'élève)
+function undoEliminate(id) {
+  const s = getStudentById(id);
+  if (!s || !s.eliminated) return;
+  if (!confirm(`Annuler l'enregistrement de ${s.nom} ${s.prenom} et le remettre en course ?`)) return;
+
+  s.eliminated = false;
+  s.elapsedSec = null;
+  s.palier = null;
+  s.vma = null;
+  s.time_fmt = null;
+  s.distance = null;
+
+  renderTestGrid();
+  saveState();
+}
+
 function calculateDistance(sec) {
   let dist = 0, t = sec;
   for (let p = 1; t > 0; p++) {
@@ -1427,7 +1445,7 @@ function showTab(id) {
   const map = { general:0, test:1, resultats:2, observateur:3 };
   if (map[id] !== undefined) tabs[map[id]].classList.add('active');
 
-  if (id === 'resultats') { renderResultsTable(); loadResultsFromSheets(); }
+  if (id === 'resultats') { sortResults = { col: 'nom', dir: 'asc' }; renderResultsTable(); loadResultsFromSheets(); }
   if (id === 'observateur') renderObsSheet();
   if (id === 'test' && !state.test.running) {
     document.getElementById('test-not-started').style.display = 'block';
@@ -1517,10 +1535,10 @@ function renderTestGrid() {
 
   grid.innerHTML = runners.map(s => {
     if (s.eliminated) {
-      return `<div class="student-btn eliminated">
+      return `<button class="student-btn eliminated" onclick="undoEliminate(${s.id})" title="Cliquez pour annuler cet enregistrement">
         <div class="s-name">✓ ${s.nom} ${s.prenom}</div>
         <div class="s-class">${CLASS_LABELS[s.classe]} · Palier ${s.palier} · ${s.vma} km/h · ${s.time_fmt}</div>
-      </div>`;
+      </button>`;
     }
     return `<button class="student-btn running" onclick="eliminateStudent(${s.id})">
       <div class="s-badge">🏃</div>
@@ -1789,8 +1807,9 @@ function studentToResult(s) {
 
 async function pushResultToSheet(students) {
   if (!SCRIPT_URL) return;
-  const results = students.filter(s => s.vma !== null).map(studentToResult);
-  if (results.length === 0) return;
+  const toSend = students.filter(s => s.vma !== null);
+  if (toSend.length === 0) return;
+  const results = toSend.map(studentToResult);
   try {
     await fetch(SCRIPT_URL, {
       method: 'POST',
@@ -1798,9 +1817,50 @@ async function pushResultToSheet(students) {
       body: JSON.stringify({ results })
       // pas de Content-Type explicite : le navigateur envoie text/plain (compatible no-cors + Apps Script)
     });
+    toSend.forEach(s => { s._synced = true; }); // évite de le renvoyer en double lors d'une synchro groupée
     showSyncStatus(`✅ ${results.length} résultat(s) sauvegardé(s)`);
   } catch(e) {
     showSyncStatus('⚠️ Sauvegarde échouée (réseau ?)');
+  }
+}
+
+// Fusionne les résultats stockés sur Google Sheets dans l'état local (state.classes),
+// pour qu'un résultat obtenu sur un autre appareil (ex : iPad) soit exportable en Excel/CSV
+// depuis celui-ci, même si l'élève n'a jamais couru sur cet appareil.
+function applyRemoteResults(rows) {
+  let changed = false;
+  for (const r of rows) {
+    const nom = String(r[1] || '').trim(), prenom = String(r[2] || '').trim();
+    if (!nom || !prenom) continue;
+    const clsKey = normalizeClasse(r[3] || '');
+    if (!clsKey) continue;
+    if (!CLASSES.includes(clsKey)) { CLASSES.push(clsKey); CLASS_LABELS[clsKey] = formatClassLabel(clsKey); }
+    if (!state.classes[clsKey]) state.classes[clsKey] = [];
+
+    let s = state.classes[clsKey].find(x => x.nom === nom && x.prenom === prenom);
+    if (!s) {
+      s = { id: nextId++, nom, prenom, classe: clsKey, sexe: r[4] || 'M', eliminated: true, vma: null };
+      state.classes[clsKey].push(s);
+    }
+    const vma = r[6] !== '' && r[6] != null ? Number(r[6]) : null;
+    const elapsedSec = r[7] !== '' && r[7] != null ? Number(r[7]) : null;
+    if (vma == null) continue; // ligne incomplète, on ne l'applique pas
+
+    s.sexe       = r[4] || s.sexe || 'M';
+    s.palier     = r[5] || s.palier || null;
+    s.vma        = vma;
+    s.elapsedSec = elapsedSec != null ? elapsedSec : s.elapsedSec;
+    s.time_fmt   = elapsedSec != null ? fmt(elapsedSec) : s.time_fmt;
+    s.distance   = r[8] !== '' && r[8] != null ? Number(r[8]) : s.distance;
+    s.eliminated = true;
+    s._synced    = true; // déjà présent sur le Drive, ne pas le renvoyer
+    changed = true;
+  }
+  if (changed) {
+    renderClassTabs(); renderResultClassTabs(); renderStudentTable(); renderResultsTable(); renderConfigSummary();
+    _suppressAutoSync = true;
+    saveState();
+    _suppressAutoSync = false;
   }
 }
 
@@ -1814,6 +1874,7 @@ async function loadResultsFromSheets() {
   try {
     const rows = await fetchSheetGviz('Résultats');
     // rows[0] = en-têtes, rows[1..] = données
+    applyRemoteResults(rows.slice(1)); // fusionne dans l'état local pour permettre l'export Excel/CSV
     const filterClass = state.resultClass === 'all' ? null : (CLASS_LABELS[state.resultClass] || state.resultClass);
     const data = rows.slice(1).filter(r => r[1] && (!filterClass || r[3] === filterClass));
     if (!data.length) {
@@ -1847,8 +1908,13 @@ async function loadResultsFromSheets() {
 async function syncAllResultsToSheet() {
   const btn = document.getElementById('btnSyncSheet');
   if (btn) { btn.disabled = true; btn.textContent = 'Envoi…'; }
-  const all = CLASSES.flatMap(cls => state.classes[cls].filter(s => s.vma !== null));
-  await pushResultToSheet(all);
+  // Uniquement les résultats pas encore confirmés sur le Drive, pour ne jamais créer de doublons
+  const all = CLASSES.flatMap(cls => state.classes[cls].filter(s => s.vma !== null && !s._synced));
+  if (all.length === 0) {
+    showSyncStatus('✅ Déjà à jour, rien à envoyer');
+  } else {
+    await pushResultToSheet(all);
+  }
   if (btn) { btn.disabled = false; btn.textContent = '☁️ Sauvegarder dans Google Sheets'; }
 }
 
