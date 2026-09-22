@@ -110,6 +110,9 @@ label{display:block;font-size:.82rem;font-weight:600;color:#5c6bc0;margin-bottom
 .grp-btn:hover{opacity:.8}
 .grp-btn.grp-a.active{background:#1565c0;color:#fff;border-color:#1565c0}
 .grp-btn.grp-b.active{background:#6a1b9a;color:#fff;border-color:#6a1b9a}
+.status-btn{display:inline-block;padding:2px 7px;border-radius:5px;font-size:.72rem;font-weight:800;cursor:pointer;border:1.5px solid #c5cae9;background:#f5f7ff;color:#9e9e9e;user-select:none;white-space:nowrap}
+.status-btn.absent{background:#ffebee;color:#c62828;border-color:#ef9a9a}
+.status-btn.dispense{background:#fff3e0;color:#e65100;border-color:#ffcc80}
 .obs-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;align-items:start}
 .obs-table{width:100%;border-collapse:collapse}
 .obs-table thead th{background:#1a237e;color:#fff;padding:8px 10px;text-align:center;font-size:.9rem;font-weight:700}
@@ -331,7 +334,6 @@ label{display:block;font-size:.82rem;font-weight:600;color:#5c6bc0;margin-bottom
   <div class="flex-gap" style="margin-bottom:16px" id="resultControls">
     <button class="btn btn-success" onclick="exportExcel()">📤 Exporter Excel</button>
     <button id="btnSyncSheet" class="btn btn-primary" onclick="syncAllResultsToSheet()">☁️ Sauvegarder dans Google Sheets</button>
-    <button class="btn btn-primary" onclick="loadResultsFromSheets()">☁️ Charger depuis Drive</button>
     <label class="btn btn-primary" style="cursor:pointer" title="Charger un fichier Excel exporté précédemment">
       📥 Charger résultats
       <input type="file" id="resultImportFile" accept=".xlsx,.xls" onchange="importResults(this)" style="display:none">
@@ -346,14 +348,6 @@ label{display:block;font-size:.82rem;font-weight:600;color:#5c6bc0;margin-bottom
   <div class="card">
     <h2>📊 Résultats VMA</h2>
     <div id="resultsTable"></div>
-  </div>
-
-  <div class="card" id="sheetsResultsCard" style="display:none;margin-top:16px">
-    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px">
-      <h2 style="margin:0">☁️ Résultats sur Drive</h2>
-      <span id="sheetsResultsStatus" style="color:#666;font-size:.85rem"></span>
-    </div>
-    <div id="sheetsResultsTable"></div>
   </div>
 </div>
 
@@ -621,7 +615,7 @@ function getActiveRunners() {
   const cls = state.currentClass;
   return (grp === 'A' ? state.groupA : state.groupB)
     .map(id => getStudentById(id))
-    .filter(s => s && s.classe === cls);
+    .filter(s => s && s.classe === cls && !s.status);
 }
 
 // Bouton de diagnostic : joue un sifflet court via HTMLAudioElement
@@ -1357,6 +1351,26 @@ function assignGroup(id, group) {
   saveState();
 }
 
+// Fait défiler le statut d'un élève : Présent → Absent → Dispensé → Présent
+function cycleStatus(id) {
+  const s = getStudentById(id);
+  if (!s) return;
+  const order = [null, 'absent', 'dispense'];
+  const next = order[(order.indexOf(s.status || null) + 1) % order.length];
+  s.status = next;
+  if (next) {
+    // Un élève absent/dispensé ne peut pas courir : on le retire des groupes
+    state.groupA = state.groupA.filter(x => x !== id);
+    state.groupB = state.groupB.filter(x => x !== id);
+  }
+  renderStudentTable();
+  renderGroupPools();
+  renderConfigSummary();
+  renderResultsTable();
+  saveState();
+  if (next) pushResultToSheet([s]); // enregistre l'absence/dispense sur le Drive
+}
+
 function autoGroups() {
   const students = state.classes[state.currentClass];
   state.groupA = state.groupA.filter(id => !students.find(s => s.id === id));
@@ -1428,7 +1442,7 @@ function selectResultClass(cls, btn) {
   document.querySelectorAll('#resultClassTabs .class-tab').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
   renderResultsTable();
-  if (document.getElementById('sheetsResultsCard').style.display !== 'none') loadResultsFromSheets();
+  loadResultsFromSheets();
 }
 
 function setTrack(len) {
@@ -1469,13 +1483,17 @@ function renderStudentTable() {
     const sexeBadge = s.sexe === 'F'
       ? '<span style="font-weight:700;color:#d81b60">F</span>'
       : '<span style="font-weight:700;color:#1565c0">G</span>';
+    const statusLabel = s.status === 'absent' ? 'Abs' : s.status === 'dispense' ? 'Disp' : 'Prés.';
     return `<tr>
       <td style="width:28px;color:#999;font-size:.8rem">${num}</td>
-      <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><strong>${s.nom}</strong> ${s.prenom}</td>
+      <td style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><strong>${s.nom}</strong> ${s.prenom}</td>
       <td style="width:22px;text-align:center">${sexeBadge}</td>
       <td style="width:54px;white-space:nowrap">
         <span class="grp-btn grp-a${inA?' active':''}" onclick="assignGroup(${s.id},'${inA?'none':'A'}')">A</span>
         <span class="grp-btn grp-b${inB?' active':''}" style="margin-left:3px" onclick="assignGroup(${s.id},'${inB?'none':'B'}')">B</span>
+      </td>
+      <td style="width:48px">
+        <span class="status-btn ${s.status||''}" onclick="cycleStatus(${s.id})" title="Cliquer pour changer : Présent → Absent → Dispensé">${statusLabel}</span>
       </td>
     </tr>`;
   };
@@ -1486,7 +1504,7 @@ function renderStudentTable() {
 
   const makeTable = (list, offset) => `
     <table class="tbl" style="width:100%">
-      <thead><tr><th>#</th><th>Nom Prénom</th><th>S</th><th>Grp</th></tr></thead>
+      <thead><tr><th>#</th><th>Nom Prénom</th><th>S</th><th>Grp</th><th>Statut</th></tr></thead>
       <tbody>${list.map((s, i) => makeRow(s, offset + i + 1)).join('')}</tbody>
     </table>`;
 
@@ -1550,7 +1568,7 @@ function renderTestGrid() {
 
 function renderResultsTable() {
   const base = (state.resultClass === 'all' ? allStudents() : state.classes[state.resultClass])
-    .filter(s => s.vma !== null);
+    .filter(s => s.vma !== null || s.status);
 
   const { col, dir } = sortResults;
   const students = base.sort((a, b) => {
@@ -1573,6 +1591,17 @@ function renderResultsTable() {
   const th = (label, c) => `<th onclick="sortResultsBy('${c}')" style="cursor:pointer;user-select:none">${label} ${sortIcon(c)}</th>`;
 
   const rows = students.map((s, i) => {
+    if (s.status) {
+      const label = s.status === 'absent' ? 'Absent(e)' : 'Dispensé(e)';
+      const cls = s.status === 'absent' ? 'absent' : 'dispense';
+      return `<tr>
+        <td>${i+1}</td>
+        <td><strong>${s.nom}</strong> ${s.prenom}</td>
+        <td><span class="badge badge-blue">${CLASS_LABELS[s.classe]}</span></td>
+        <td>${s.sexe === 'F' ? '♀' : '♂'}</td>
+        <td colspan="4"><span class="status-btn ${cls}">${label}</span></td>
+      </tr>`;
+    }
     const vmaClass = s.vma >= 16 ? 'vma-high' : s.vma >= 12 ? 'vma-mid' : 'vma-low';
     return `<tr>
       <td>${i+1}</td>
@@ -1694,16 +1723,17 @@ function exportExcel() {
 
   const wb = XLSX.utils.book_new();
 
-  const classesToExport = CLASSES.filter(c => state.classes[c].some(s => s.vma !== null));
+  const classesToExport = CLASSES.filter(c => state.classes[c].some(s => s.vma !== null || s.status));
   if (classesToExport.length === 0) { alert('Aucun résultat à exporter.'); return; }
 
   // Sheet par classe + sheet global
   const allRows = [];
-  const headers = ['Nom Prénom','Classe','Sexe','Palier','Temps','Distance (m)','VMA (km/h)'];
+  const headers = ['Nom Prénom','Classe','Sexe','Palier','Temps','Distance (m)','VMA (km/h)','Statut'];
+  const statutLabel = s => s.status === 'absent' ? 'Absent(e)' : s.status === 'dispense' ? 'Dispensé(e)' : '';
 
   for (const cls of classesToExport) {
-    const students = state.classes[cls].filter(s => s.vma !== null).sort((a,b) => (b.vma||0)-(a.vma||0));
-    const rows = students.map(s => [`${s.nom} ${s.prenom}`, CLASS_LABELS[s.classe], s.sexe, s.palier, s.time_fmt, s.distance, s.vma]);
+    const students = state.classes[cls].filter(s => s.vma !== null || s.status).sort((a,b) => (b.vma||0)-(a.vma||0));
+    const rows = students.map(s => [`${s.nom} ${s.prenom}`, CLASS_LABELS[s.classe], s.sexe, s.palier, s.time_fmt, s.distance, s.vma, statutLabel(s)]);
     const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
     XLSX.utils.book_append_sheet(wb, ws, CLASS_LABELS[cls]);
     allRows.push(...rows);
@@ -1716,11 +1746,12 @@ function exportExcel() {
 }
 
 function exportCSV() {
-  const all = allStudents().filter(s => s.vma !== null).sort((a,b) => (b.vma||0)-(a.vma||0));
+  const all = allStudents().filter(s => s.vma !== null || s.status).sort((a,b) => (b.vma||0)-(a.vma||0));
   if (all.length === 0) { alert('Aucun résultat à exporter.'); return; }
 
-  const lines = ['Nom Prénom,Classe,Sexe,Palier,Temps,Distance,VMA'];
-  all.forEach(s => lines.push(`${s.nom} ${s.prenom},${CLASS_LABELS[s.classe]},${s.sexe},${s.palier||''},${s.time_fmt||''},${s.distance||''},${s.vma||''}`));
+  const statutLabel = s => s.status === 'absent' ? 'Absent(e)' : s.status === 'dispense' ? 'Dispensé(e)' : '';
+  const lines = ['Nom Prénom,Classe,Sexe,Palier,Temps,Distance,VMA,Statut'];
+  all.forEach(s => lines.push(`${s.nom} ${s.prenom},${CLASS_LABELS[s.classe]},${s.sexe},${s.palier||''},${s.time_fmt||''},${s.distance||''},${s.vma||''},${statutLabel(s)}`));
 
   const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
   const a = document.createElement('a');
@@ -1801,13 +1832,14 @@ function studentToResult(s) {
     speed: s.vma || '',
     vma: s.vma || '',
     elapsed: s.elapsedSec != null ? Math.round(s.elapsedSec) : '',
-    distance: s.distance || ''
+    distance: s.distance || '',
+    statut: s.status === 'absent' ? 'Absent' : s.status === 'dispense' ? 'Dispensé' : ''
   };
 }
 
 async function pushResultToSheet(students) {
   if (!SCRIPT_URL) return;
-  const toSend = students.filter(s => s.vma !== null);
+  const toSend = students.filter(s => s.vma !== null || s.status);
   if (toSend.length === 0) return;
   const results = toSend.map(studentToResult);
   try {
@@ -1844,15 +1876,23 @@ function applyRemoteResults(rows) {
     }
     const vma = r[6] !== '' && r[6] != null ? Number(r[6]) : null;
     const elapsedSec = r[7] !== '' && r[7] != null ? Number(r[7]) : null;
-    if (vma == null) continue; // ligne incomplète, on ne l'applique pas
+    const statutRaw = String(r[9] || '').trim().toLowerCase();
+    const status = statutRaw.startsWith('absent') ? 'absent' : statutRaw.startsWith('dispens') ? 'dispense' : null;
+    if (vma == null && !status) continue; // ligne incomplète, on ne l'applique pas
 
-    s.sexe       = r[4] || s.sexe || 'M';
-    s.palier     = r[5] || s.palier || null;
-    s.vma        = vma;
-    s.elapsedSec = elapsedSec != null ? elapsedSec : s.elapsedSec;
-    s.time_fmt   = elapsedSec != null ? fmt(elapsedSec) : s.time_fmt;
-    s.distance   = r[8] !== '' && r[8] != null ? Number(r[8]) : s.distance;
-    s.eliminated = true;
+    s.sexe = r[4] || s.sexe || 'M';
+    if (status) {
+      s.status = status;
+      s.vma = null; s.palier = null; s.elapsedSec = null; s.time_fmt = null; s.distance = null;
+    } else {
+      s.status     = null;
+      s.palier     = r[5] || s.palier || null;
+      s.vma        = vma;
+      s.elapsedSec = elapsedSec != null ? elapsedSec : s.elapsedSec;
+      s.time_fmt   = elapsedSec != null ? fmt(elapsedSec) : s.time_fmt;
+      s.distance   = r[8] !== '' && r[8] != null ? Number(r[8]) : s.distance;
+      s.eliminated = true;
+    }
     s._synced    = true; // déjà présent sur le Drive, ne pas le renvoyer
     changed = true;
   }
@@ -1864,44 +1904,16 @@ function applyRemoteResults(rows) {
   }
 }
 
+// Récupère les résultats stockés sur Google Sheets et les fusionne dans l'état local
+// (state.classes), pour que le tableau "Résultats VMA" et les exports Excel/CSV
+// reflètent toujours ce qui est sur le Drive — sans panneau séparé à charger à la main.
 async function loadResultsFromSheets() {
-  const card   = document.getElementById('sheetsResultsCard');
-  const status = document.getElementById('sheetsResultsStatus');
-  const table  = document.getElementById('sheetsResultsTable');
-  card.style.display = 'block';
-  status.textContent = '⏳ Chargement…';
-  table.innerHTML = '';
   try {
     const rows = await fetchSheetGviz('Résultats');
     // rows[0] = en-têtes, rows[1..] = données
-    applyRemoteResults(rows.slice(1)); // fusionne dans l'état local pour permettre l'export Excel/CSV
-    const filterClass = state.resultClass === 'all' ? null : (CLASS_LABELS[state.resultClass] || state.resultClass);
-    const data = rows.slice(1).filter(r => r[1] && (!filterClass || r[3] === filterClass));
-    if (!data.length) {
-      status.textContent = '⚠️ Aucun résultat sur Drive.';
-      return;
-    }
-    // Colonnes : Date(0) Nom(1) Prénom(2) Classe(3) Sexe(4) Palier(5) VMA(6) Temps(7) Distance(8)
-    const trs = data.map(r => `<tr>
-      <td>${r[0]}</td>
-      <td><strong>${r[1]}</strong> ${r[2]}</td>
-      <td><span class="badge badge-blue">${r[3]}</span></td>
-      <td>${r[4] === 'F' ? '♀' : '♂'}</td>
-      <td>${r[5]}</td>
-      <td>${r[6] ? r[6] + ' km/h' : '—'}</td>
-      <td>${r[7] ? r[7] + ' s' : '—'}</td>
-      <td>${r[8] ? r[8] + ' m' : '—'}</td>
-    </tr>`).join('');
-    table.innerHTML = `<table class="tbl">
-      <thead><tr>
-        <th>Date</th><th>Nom Prénom</th><th>Classe</th><th>Sexe</th>
-        <th>Palier</th><th>VMA</th><th>Temps</th><th>Distance</th>
-      </tr></thead>
-      <tbody>${trs}</tbody>
-    </table>`;
-    status.textContent = `✅ ${data.length} résultat(s)`;
+    applyRemoteResults(rows.slice(1));
   } catch(e) {
-    status.textContent = '❌ Erreur : ' + e.message;
+    showSyncStatus('⚠️ Résultats Drive : ' + e.message);
   }
 }
 
@@ -1909,7 +1921,7 @@ async function syncAllResultsToSheet() {
   const btn = document.getElementById('btnSyncSheet');
   if (btn) { btn.disabled = true; btn.textContent = 'Envoi…'; }
   // Uniquement les résultats pas encore confirmés sur le Drive, pour ne jamais créer de doublons
-  const all = CLASSES.flatMap(cls => state.classes[cls].filter(s => s.vma !== null && !s._synced));
+  const all = CLASSES.flatMap(cls => state.classes[cls].filter(s => (s.vma !== null || s.status) && !s._synced));
   if (all.length === 0) {
     showSyncStatus('✅ Déjà à jour, rien à envoyer');
   } else {
