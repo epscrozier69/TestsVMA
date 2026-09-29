@@ -166,6 +166,7 @@ label{display:block;font-size:.82rem;font-weight:600;color:#5c6bc0;margin-bottom
 .grp-btn{width:36px;height:32px;line-height:32px;font-size:.82rem}
 .test-display{padding:16px 18px;gap:16px}
 .test-stat-val{font-size:2rem}
+.student-grid{grid-template-columns:1fr!important}
 }
 
 /* Tablette portrait et petits écrans (jusqu'à 768px) */
@@ -1169,16 +1170,32 @@ async function importFromGoogleSheets() {
 
     const selected = Array.from(document.querySelectorAll('.cls-import-check:checked')).map(cb => cb.value);
 
-    let total = 0;
+    let total = 0, removed = 0, kept = 0;
     for (const cls of selected) {
       const students = grouped[cls] || [];
+      if (!state.classes[cls]) state.classes[cls] = [];
+
+      // Ajoute les élèves de la liste qui ne sont pas encore importés
       for (const s of students) {
-        if (!state.classes[cls]) state.classes[cls] = [];
         if (!state.classes[cls].find(x => x.nom===s.nom && x.prenom===s.prenom)) {
           state.classes[cls].push({ id: nextId++, nom: s.nom, prenom: s.prenom,
             classe: cls, sexe: s.sexe, eliminated: false, vma: null });
           total++;
         }
+      }
+
+      // Retire les élèves qui ne sont plus dans la liste — sauf s'ils ont déjà
+      // un résultat ou un statut enregistré, pour ne jamais effacer un résultat.
+      const stillThere = new Set(students.map(s => s.nom + '|' + s.prenom));
+      const toRemove = state.classes[cls].filter(x => !stillThere.has(x.nom + '|' + x.prenom));
+      const removable = toRemove.filter(x => x.vma === null && !x.status);
+      kept += toRemove.length - removable.length;
+      if (removable.length) {
+        const removeIds = new Set(removable.map(x => x.id));
+        state.classes[cls] = state.classes[cls].filter(x => !removeIds.has(x.id));
+        state.groupA = state.groupA.filter(id => !removeIds.has(id));
+        state.groupB = state.groupB.filter(id => !removeIds.has(id));
+        removed += removable.length;
       }
     }
 
@@ -1194,8 +1211,12 @@ async function importFromGoogleSheets() {
       const n = state.classes[cls]?.length || 0;
       return `<br>• ${CLASS_LABELS[cls]||cls} : ${n > 0 ? '✅' : '⚠️'} ${n} élève(s)`;
     }).join('');
-    const msg = total > 0 ? `${total} élève(s) importé(s).` : `Liste à jour.`;
-    statusEl.innerHTML = `<div class="alert alert-success">${msg} Groupes A/B pré-assignés.${lines}</div>`;
+    const parts = [];
+    if (total > 0) parts.push(`${total} élève(s) ajouté(s)`);
+    if (removed > 0) parts.push(`${removed} élève(s) retiré(s) (plus sur la liste)`);
+    if (kept > 0) parts.push(`${kept} élève(s) absent(s) de la liste mais conservé(s) (résultat déjà enregistré)`);
+    const msg = parts.length ? parts.join(', ') + '.' : 'Liste déjà à jour.';
+    statusEl.innerHTML = `<div class="alert alert-success">${msg}${lines}</div>`;
     setTimeout(() => { statusEl.innerHTML = ''; }, 4000);
   } catch(e) {
     statusEl.innerHTML = `<div class="alert alert-warn">Erreur : ${e.message}</div>`;
@@ -1317,6 +1338,8 @@ ${tableHTML}
 // ============================================================
 //  GROUPS
 // ============================================================
+// N'assigne un groupe A/B qu'aux élèves qui n'en ont pas encore (nouveaux imports) —
+// ne touche jamais les élèves déjà répartis, pour ne pas écraser une réorganisation manuelle.
 function autoGroupAfterImport() {
   for (const cls of CLASSES) {
     if (!state.classes[cls]?.length) continue;
@@ -1324,13 +1347,13 @@ function autoGroupAfterImport() {
       a.nom.localeCompare(b.nom, 'fr') || a.prenom.localeCompare(b.prenom, 'fr')
     );
   }
-  state.groupA = [];
-  state.groupB = [];
   for (const cls of CLASSES) {
     const students = state.classes[cls];
     if (!students?.length) continue;
-    const half = Math.ceil(students.length / 2);
-    students.forEach((s, i) => {
+    const unassigned = students.filter(s => !state.groupA.includes(s.id) && !state.groupB.includes(s.id) && !s.status);
+    if (!unassigned.length) continue;
+    const half = Math.ceil(unassigned.length / 2);
+    unassigned.forEach((s, i) => {
       if (i < half) state.groupA.push(s.id);
       else state.groupB.push(s.id);
     });
@@ -1486,7 +1509,7 @@ function renderStudentTable() {
     const statusLabel = s.status === 'absent' ? 'Abs' : s.status === 'dispense' ? 'Disp' : 'Prés.';
     return `<tr>
       <td style="width:28px;color:#999;font-size:.8rem">${num}</td>
-      <td style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><strong>${s.nom}</strong> ${s.prenom}</td>
+      <td style="white-space:normal;word-break:break-word"><strong>${s.nom}</strong> ${s.prenom}</td>
       <td style="width:22px;text-align:center">${sexeBadge}</td>
       <td style="width:54px;white-space:nowrap">
         <span class="grp-btn grp-a${inA?' active':''}" onclick="assignGroup(${s.id},'${inA?'none':'A'}')">A</span>
@@ -1509,7 +1532,7 @@ function renderStudentTable() {
     </table>`;
 
   container.innerHTML = `
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;align-items:start">
+    <div class="student-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;align-items:start">
       ${makeTable(col1, 0)}
       ${makeTable(col2, half)}
     </div>`;
