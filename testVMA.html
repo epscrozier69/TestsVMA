@@ -239,6 +239,12 @@ label{display:block;font-size:.82rem;font-weight:600;color:#5c6bc0;margin-bottom
       <button class="btn btn-success btn-sm" onclick="saveConfigToSheet()">☁️ Sauvegarder sur Drive</button>
       <span id="syncStatus" style="font-size:.8rem;color:#666;font-style:italic"></span>
     </div>
+    <hr style="margin:10px 0;border-color:#e0e0e0">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <button class="btn btn-outline btn-sm" onclick="exportStateToJson()">💾 Sauvegarder .json</button>
+      <button class="btn btn-outline btn-sm" onclick="document.getElementById('restoreFileInput').click()">📂 Restaurer .json</button>
+      <input type="file" id="restoreFileInput" accept=".json,application/json" style="display:none" onchange="restoreStateFromJson(event)">
+    </div>
   </div>
 
   <!-- Divs cachés nécessaires au JS (renderGroupPools) -->
@@ -1052,6 +1058,70 @@ function clearSavedState() {
   nextId = 1;
   renderClassTabs(); renderResultClassTabs();
   renderStudentTable(); renderGroupPools(); renderConfigSummary();
+}
+
+// ============================================================
+//  SAUVEGARDE / RESTAURATION .JSON (fichier local)
+// ============================================================
+function exportStateToJson() {
+  const data = {
+    classes: state.classes,
+    groupA: state.groupA,
+    groupB: state.groupB,
+    knownClasses: CLASSES,
+    trackLength: state.trackLength,
+    exportedAt: new Date().toISOString()
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `vma_sauvegarde_${new Date().toISOString().slice(0,10)}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function restoreStateFromJson(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    event.target.value = '';
+    let data;
+    try {
+      data = JSON.parse(e.target.result);
+    } catch(err) {
+      alert('Fichier JSON invalide : ' + err.message);
+      return;
+    }
+    if (!data || typeof data !== 'object' || !data.classes) {
+      alert('Fichier invalide : données attendues introuvables.');
+      return;
+    }
+    if (!confirm('Restaurer cette sauvegarde ? Les données actuelles (élèves, groupes, résultats) seront remplacées.')) return;
+    CLASSES.length = 0;
+    for (const k of Object.keys(state.classes)) delete state.classes[k];
+    state.groupA = []; state.groupB = [];
+    state.currentClass = null; state.configClass = null;
+    const stored = data.knownClasses || Object.keys(data.classes || {});
+    for (const cls of stored) {
+      if (!CLASSES.includes(cls)) { CLASSES.push(cls); CLASS_LABELS[cls] = formatClassLabel(cls); }
+      state.classes[cls] = data.classes[cls] || [];
+      if (!state.currentClass && state.classes[cls].length) { state.currentClass = cls; state.configClass = cls; }
+    }
+    if (data.groupA) state.groupA = data.groupA;
+    if (data.groupB) state.groupB = data.groupB;
+    if (data.trackLength) state.trackLength = data.trackLength;
+    const maxId = Math.max(0, ...Object.values(state.classes).flat().map(s => s.id).filter(Number.isFinite));
+    nextId = maxId + 1;
+    saveState();
+    renderClassTabs(); renderResultClassTabs();
+    renderStudentTable(); renderGroupPools(); renderConfigSummary();
+    alert('Données restaurées avec succès.');
+  };
+  reader.readAsText(file);
 }
 
 // ============================================================
